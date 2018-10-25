@@ -9,13 +9,13 @@ from tqdm import tqdm
 import config
 import data
 import utils
-from resnet import resnet as caffe_resnet
-
+from resnet import resnet152
+import pdb
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.model = caffe_resnet.resnet152(pretrained=True)
+        self.model = resnet152(pretrained=True)
 
         def save_output(module, input, output):
             self.buffer = output
@@ -45,7 +45,6 @@ def main():
 
     net = Net().cuda()
     net.eval()
-
     loader = create_coco_loader(config.train_path, config.val_path)
     features_shape = (
         len(loader.dataset),
