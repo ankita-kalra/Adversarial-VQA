@@ -92,7 +92,7 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
 '''
 
 
-def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='', epoch=0):
+def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
     """ Run an epoch over the given loader """
     if train:
         #attacker.train()
@@ -102,8 +102,10 @@ def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='',
         tracker_class, tracker_params = tracker.MeanMonitor, {}
 
     tq = tqdm(loader, desc='{} E{:03d}'.format(prefix, epoch), ncols=0)
+    noise_tracker = tracker.track('{}_noise'.format(prefix), tracker_class(**tracker_params))
     loss_tracker = tracker.track('{}_loss'.format(prefix), tracker_class(**tracker_params))
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
+    orig_tracker = tracker.track('{}_orig'.format(prefix), tracker_class(**tracker_params))
 
     origs = []
     successes = []
@@ -119,17 +121,19 @@ def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='',
             q_len = Variable(q_len.cuda(async=True), **var_params)
 
             if train:
-                orig, success, img, loss1, loss2, mean_noise = attacker.perform(v, q, q_len, a)
+                global total_iterations
+                orig, success, img, loss1, loss2, mean_noise = attacker.perform(v, q, q_len, a, total_iterations)
 
                 #Update Learning rate. Use smooth decay. Can replace by decrease_on_plateau scheduler
-                global total_iterations
                 total_iterations += 1
-                update_learning_rate(optimizer, total_iterations)
+                #update_learning_rate(optimizer, total_iterations)
                 loss_tracker.append(loss1.data[0] + loss2.data[0])
+                noise_tracker.append(loss2.data[0])
                 
             else:
-                orig, success, img, _, loss2, mean_noise = attacker.perform_validation(v, q, q_len, a)
+                orig, success, img, _, loss2, mean_noise = attacker.perform_validation(v, q, q_len, a, total_iterations)
                 loss_tracker.append(loss2.data[0]) #Tracks only the noise. Not the entire loss
+                noise_tracker.append(loss2.data[0])
                 
                 
 
@@ -137,12 +141,17 @@ def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='',
             origs.append(orig)
             successes.append(success)
             
+            if orig:
+		orig_tracker.append(1)
+	    else:
+		orig_tracker.append(0)
+
             if orig & success:
                 acc_tracker.append(1)
             else:
                 acc_tracker.append(0)
             fmt = '{:.4f}'.format
-            tq.set_postfix(loss=fmt(loss_tracker.mean.value), acc=fmt(acc_tracker.mean.value))
+            tq.set_postfix(loss=fmt(loss_tracker.mean.value), noise=fmt(noise_tracker.mean.value), acc=fmt(acc_tracker.mean.value), orig=fmt(orig_tracker.mean.value))
 
     orig_acc = np.sum(np.array(origs)) / len(origs) #Accuracy of original VQA model
     att_pred = np.array(origs) & ~(np.array(successes))
@@ -160,6 +169,9 @@ def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='',
             
 
 def main():
+    global total_iterations
+    total_iterations = 1
+ 
     if len(sys.argv) > 1:
         name = 'attacker_' + (' '.join(sys.argv[1:]))
     else:
@@ -189,7 +201,7 @@ def main():
     #Uncomment this for Carlini
     #attacker = CarliniAttacker(vqa_model)
 
-    optimizer = optim.Adam([p for p in attacker.attack_model.parameters() if p.requires_grad])
+    #optimizer = optim.Adam([p for p in attacker.attack_model.parameters() if p.requires_grad])
     #scheduler = ReduceLROnPlateau(optimizer, 'min')
 
     tracker = utils.Tracker()
@@ -198,11 +210,11 @@ def main():
     eval_after_epochs = 1 #Run eval after these many epochs
     for i in range(config.epochs):
         #Run a train epoch
-        loss1, noise, dec_acc, asucr, enr, orig_acc, att_acc = run(attacker, vqa_model, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
+        loss1, noise, dec_acc, asucr, enr, orig_acc, att_acc = run(attacker, vqa_model, train_loader, tracker, train=True, prefix='train', epoch=i)
         print("Epoch " + str(i) +" : Training Results: Decrease in VQA acc: "+ str(dec_acc) + " ASUCR: " +str(asucr) + " ENR: "+str(enr))
         if i % eval_after_epochs == 0:
             #Run eval 
-            _, noise, dec_acc, asucr, enr, orig_acc, att_acc = run(attacker, vqa_model, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
+            _, noise, dec_acc, asucr, enr, orig_acc, att_acc = run(attacker, vqa_model, val_loader, tracker, train=False, prefix='val', epoch=i)
             print("Epoch " + str(i) +" : Validation Results: Decrease in VQA acc: "+ str(dec_acc) + " ASUCR: " +str(asucr) + " ENR: "+str(enr))
             #Put if condition here to save only if attacker improves it's performance
 

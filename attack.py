@@ -9,15 +9,24 @@ import cv2
 
 import pdb
 
-max_inter = 250
-lr_halflife = 200
-initial_lr = 5e-3
+import config_att as config
+
+max_inter = 10
+lr_halflife = config.lr_halflife
+initial_lr = config.init_lr
 
 def update_learning_rate(optimizer, iteration):
     lr = initial_lr * 0.5**(float(iteration) / lr_halflife)
     for param_group in optimizer.param_groups:
         #print ("LR = ", lr)
         param_group['lr'] = lr
+
+def step_update_learning_rate(optimizer, iteration):
+    #lr = initial_lr * 0.5**(float(iteration) / lr_halflife)
+    if iteration % lr_halflife == 0:
+    	for param_group in optimizer.param_groups:
+        	#print ("LR = ", lr)
+        	param_group['lr'] /= 2
 
 class CarliniAttacker:
     def __init__(self, VQA_model, targetted=False):
@@ -163,7 +172,7 @@ class Attacker:
             self.targetted_const = -1
 
 
-    def perform_validation(self, img, que, que_len, ans):
+    def perform_validation(self, img, que, que_len, ans, total_iterations):
         '''
         img: batch of images
         que: batch of questions
@@ -209,7 +218,7 @@ class Attacker:
         #Only untargetted for now
         ############################################## Works only with batch_size = 1 for now. Modify for larger sizes later
         if (target_idx.numpy()[0] == ans_index.numpy()[0]):   #If actual VQA model is right then attack it else dont. #if actual answer same as predicted then attack it
-            orig, success, img_cv, loss1, loss2, mean_noise = self.perform(img, que, que_len, ans) ################################################################################################################################################ Check. Perform has grads. Not needed in val
+            orig, success, img_cv, loss1, loss2, mean_noise = self.perform(img, que, que_len, ans, total_iterations) ################################################################################################################################################ Check. Perform has grads. Not needed in val
             return True, success, img_cv, loss1, loss2, mean_noise #orig = True as original VQA model is right. success decided by attack. img is perturbed image
             #return True, False, None 
 
@@ -266,7 +275,7 @@ class Attacker:
         else:
             return False, False, None, None, None, None #orig = False as the original VQA model itself misclassifies
 
-    def perform(self, img, que, que_len, ans):
+    def perform(self, img, que, que_len, ans, total_iterations):
         '''
         img: batch of images
         que: batch of questions
@@ -309,15 +318,16 @@ class Attacker:
         iter_ = 0
         img_cv = None
 
+        step_update_learning_rate(self.optimizer, total_iterations)
 
         #Change this to allow for custom learning rates
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = 5e-3
+        #for param_group in self.optimizer.param_groups:
+        #    param_group['lr'] = config.init_lr
         
         while (iter_ < max_inter and (success == False)):
 
             iter_ += 1
-            update_learning_rate(self.optimizer, iter_) #####################################Replace with scheduler instead using decrease_on_plateau
+            #update_learning_rate(self.optimizer, total_iterations) #####################################Replace with scheduler instead using decrease_on_plateau
 
             #Attack the image now using attention maps
             purturb = self.attack_model(att_clone)
@@ -355,8 +365,8 @@ class Attacker:
                     img_cv = np.transpose(img_np1,(0,2,3,1))
                     img_cv = cv2.convertScaleAbs(img_cv.reshape(448,448,3)*255)
                     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-                    cv2.imshow('purturbed', img_cv)
-                    cv2.waitKey(0)
+                    #cv2.imshow('purturbed', img_cv)
+                    #cv2.waitKey(0)
                     #cv2.imshow('purturbed', img_cv)
                     #cv2.waitKey(100)
 
