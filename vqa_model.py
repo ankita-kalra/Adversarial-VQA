@@ -50,11 +50,11 @@ class Net(nn.Module):
 
         v = v / (v.norm(p=2, dim=1, keepdim=True).expand_as(v) + 1e-8)
         a = self.attention(v, q)
-        v = apply_attention(v, a)
+        v, att = apply_attention(v, a)
 
         combined = torch.cat([v, q], dim=1)
         answer = self.classifier(combined)
-        return answer
+        return answer, att #Return both answer and the attention maps. Modified from original here
 
 
 class Classifier(nn.Sequential):
@@ -142,7 +142,7 @@ def apply_attention(input, attention):
     # sum over only the spatial dimension
     weighted_mean = weighted.sum(dim=3)
     # the shape at this point is (n, glimpses, c, 1)
-    return weighted_mean.view(n, -1)
+    return weighted_mean.view(n, -1), weighted
 
 
 def tile_2d_over_nd(feature_vector, feature_map):
@@ -153,3 +153,4 @@ def tile_2d_over_nd(feature_vector, feature_map):
     spatial_size = feature_map.dim() - 2
     tiled = feature_vector.view(n, c, *([1] * spatial_size)).expand_as(feature_map)
     return tiled
+

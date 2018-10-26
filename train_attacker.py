@@ -10,9 +10,9 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 from tqdm import tqdm
 
-import config_att
+import config_att as config
 import data
-import vqa_model as model
+import att_model as model
 import utils
 
 #import vqa_model as model
@@ -137,7 +137,7 @@ def run(attacker, vqa_model, loader, optimizer, tracker, train=False, prefix='',
             origs.append(orig)
             successes.append(success)
             
-            if orig & successes:
+            if orig & success:
                 acc_tracker.append(1)
             else:
                 acc_tracker.append(0)
@@ -169,30 +169,32 @@ def main():
     print('will save to {}'.format(target_name))
 
     cudnn.benchmark = True
-
+    print("Initialize Data Loaders")
     train_loader = data.get_loader(train=True)
     val_loader = data.get_loader(val=True)
 
     #net = nn.DataParallel(model.Net(train_loader.dataset.num_tokens)).cuda()
     # Define and loadup the models
+    print("Initialize VQA model")
     vqa_model = model.VQANet()
 
     # Get question and vocab answer
     vocab = vqa_model.get_vocab()
 
     # Define attacker
-
+    print("Load Attacker model")
     #Uncomment this for AttendAndAttackNet
     attacker = Attacker(vqa_model)
 
     #Uncomment this for Carlini
     #attacker = CarliniAttacker(vqa_model)
 
-    optimizer = optim.Adam([p for p in attacker.parameters() if p.requires_grad])
+    optimizer = optim.Adam([p for p in attacker.attack_model.parameters() if p.requires_grad])
+    #scheduler = ReduceLROnPlateau(optimizer, 'min')
 
     tracker = utils.Tracker()
     config_as_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
-
+    print("Begin Training")
     eval_after_epochs = 1 #Run eval after these many epochs
     for i in range(config.epochs):
         #Run a train epoch

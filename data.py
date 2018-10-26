@@ -8,18 +8,29 @@ import h5py
 import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
+import numpy as np
 
-import config
+import config_att as config
 import utils
-
+import pdb
 
 def get_loader(train=False, val=False, test=False):
     """ Returns a data loader for the desired split """
     assert train + val + test == 1, 'need to set exactly one of {train, val, test} to True'
+    if train:
+        im_path = config.train_path
+        fdict_path = config.fdict_path + 'train.npy'
+    elif val:
+        im_path = config.val_path 
+        fdict_path = config.fdict_path + 'val.npy'
+    else:
+        im_path = config.test_path
+        fdict_path = config.fdict_path + 'test.npy'
     split = VQA(
         utils.path_for(train=train, val=val, test=test, question=True),
         utils.path_for(train=train, val=val, test=test, answer=True),
-        config.preprocessed_path,
+        im_path,
+        fdict_path,
         answerable_only=train,
     )
     loader = torch.utils.data.DataLoader(
@@ -41,7 +52,7 @@ def collate_fn(batch):
 
 class VQA(data.Dataset):
     """ VQA dataset, open-ended """
-    def __init__(self, questions_path, answers_path, image_features_path, answerable_only=False):
+    def __init__(self, questions_path, answers_path, image_path, fdict_path, answerable_only=False):
         super(VQA, self).__init__()
         with open(questions_path, 'r') as fd:
             questions_json = json.load(fd)
@@ -63,9 +74,16 @@ class VQA(data.Dataset):
         self.answers = [self._encode_answers(a) for a in self.answers]
 
         # v
-        self.image_features_path = image_features_path
-        self.coco_id_to_index = self._create_coco_id_to_index()
+        self.image_path = image_path
+        #self.coco_id_to_index = self._create_coco_id_to_index()
         self.coco_ids = [q['image_id'] for q in questions_json['questions']]
+        self.transform = utils.get_transform(config.image_size, config.central_fraction)
+
+        #self.id_to_filename = self._find_images()
+        self.id_to_filename = np.load(fdict_path).item()
+        self.sorted_ids = sorted(self.id_to_filename.keys())  # used for deterministic iteration order
+        print('found {} images in {}'.format(len(self.id_to_filename), image_path))
+        #pdb.set_trace()
 
         # only use questions that have at least one answer?
         self.answerable_only = answerable_only
@@ -88,6 +106,22 @@ class VQA(data.Dataset):
             coco_ids = features_file['ids'][()]
         coco_id_to_index = {id: i for i, id in enumerate(coco_ids)}
         return coco_id_to_index
+
+    def _find_images(self):
+        id_to_filename = {}
+        filenames = os.listdir(self.image_path)
+        n = len(filenames)
+        i = 0
+        for filename in filenames:
+            if not filename.endswith('.jpg'):
+                continue
+
+	    print("Reading" + str(i) + " / " +str(n))
+	    i += 1
+            id_and_extension = filename.split('_')[-1]
+            id = int(id_and_extension.split('.')[0])
+            id_to_filename[id] = filename
+        return id_to_filename
 
     def _check_integrity(self, questions, answers):
         """ Verify that we are using the correct data """
@@ -139,7 +173,20 @@ class VQA(data.Dataset):
         img = dataset[index].astype('float32')
         return torch.from_numpy(img)
 
+    def _load_rgb_image(self, image_id, transform):
+        """ Load an image """
+        #print(image_id)
+        #id = self.sorted_ids[image_id]
+        path = os.path.join(self.image_path, self.id_to_filename[image_id])
+        img = Image.open(path).convert('RGB')
+
+        if transform is not None:
+            img = transform(img)
+
+        return img
+
     def __getitem__(self, item):
+        #This needs to be modified for other datasets to be supported. Returns v, q, a, item, q_length where v is image feats (1 X 14 X 14 X 2048), q is list of encoded words, a is answer index, q is ques_length and so on
         if self.answerable_only:
             # change of indices to only address answerable questions
             item = self.answerable[item]
@@ -147,7 +194,13 @@ class VQA(data.Dataset):
         q, q_length = self.questions[item]
         a = self.answers[item]
         image_id = self.coco_ids[item]
-        v = self._load_image(image_id)
+        
+        #Use this to load resnet feats
+        #v = self._load_image(image_id)
+
+        #Use this to lead RGB feats
+        v = self._load_rgb_image(image_id, self.transform)
+
         # since batches are re-ordered for PackedSequence's, the original question order is lost
         # we return `item` so that the order of (v, q, a) triples can be restored if desired
         # without shuffling in the dataloader, these will be in the order that they appear in the q and a json's.
@@ -254,3 +307,4 @@ class Composite(data.Dataset):
 
     def __len__(self):
         return sum(map(len, self.datasets))
+

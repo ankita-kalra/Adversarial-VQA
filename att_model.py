@@ -21,7 +21,7 @@ class ResNet(torch.nn.Module):
 
 
 class VQANet:
-	def __init__(self, vqa_model_path = '/home/akalra1/projects/adversarial-attacks/show_ask_answer/pytorch-vqa/logs/2017-08-04_00.55:19.pth'):
+	def __init__(self, vqa_model_path = '/home/akalra1/projects/adversarial-attacks/show_ask_answer/pytorch-vqa/logs/2017-08-04_00:55:19.pth'):
 		# initialize the resnet
 		self.rnet = ResNet().cuda()
 		self.rnet.eval()
@@ -29,7 +29,7 @@ class VQANet:
 		self.log = torch.load(vqa_model_path)
 		self.tokens = len(self.log['vocab']['question']) + 1
 
-		self.vqa_net = torch.nn.DataParallel(pytorch_vqa.model.Net(self.tokens)).cuda()
+		self.vqa_net = torch.nn.DataParallel(vqa_model.Net(self.tokens)).cuda()
 		self.vqa_net.eval()
 		self.vqa_net.load_state_dict(self.log['weights'])
 
@@ -43,7 +43,8 @@ class VQANet:
 		'''
 		Performs forward pass on the image
 		'''
-		im_features = self.rnet(im)
+		im_features = self.rnet(im) #If RGB image feats received
+		#im_features = im #Pre computed resnet features
 		ans, att = self.vqa_net(im_features, q, q_len)
 
 		return ans, att

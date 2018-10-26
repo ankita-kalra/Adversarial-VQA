@@ -6,6 +6,8 @@ test_path = '/home/akalra1/projects/adversarial-attacks/data/vqa_v1/test_im/test
 preprocessed_path = './resnet-14x14.h5'  # path where preprocessed features are saved to and loaded from
 vocabulary_path = './vocab.json'  # path where the used vocabularies for question and answers are saved to
 
+fdict_path = '/home/akalra1/projects/adversarial-attacks/show_ask_answer/pytorch-vqa/id_to_filename_'
+
 task = 'OpenEnded'
 dataset = 'mscoco'
 

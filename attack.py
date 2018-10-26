@@ -7,6 +7,7 @@ import torch.nn as nn
 import utils
 import cv2
 
+import pdb
 
 max_inter = 250
 lr_halflife = 200
@@ -286,6 +287,7 @@ class Attacker:
         #ans = Variable(torch.from_numpy(ans).cuda(async=True))
         #que_len = Variable(torch.from_numpy(que_len).cuda(async=True))
 
+	#pdb.set_trace()	
         ans_, att_ = self.VQA_model.forward_pass(img, que, que_len)
 
 
@@ -301,7 +303,7 @@ class Attacker:
 
         att_cpu = att_.data.cpu().numpy()
         #Break computational graph to not backprop into the VQA model itself
-        att_clone = Variable(torch.from_numpy(att_cpu).cuda(), requires_grad= False).view(q.shape[0], 4096, 14, 14)
+        att_clone = Variable(torch.from_numpy(att_cpu).cuda(), requires_grad= False).view(que.shape[0], 4096, 14, 14)
 
         success = False
         iter_ = 0
