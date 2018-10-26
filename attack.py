@@ -356,7 +356,7 @@ class Attacker:
             if self.targetted_const == -1:
                 ############################################## Works only with batch_size = 1 for now. Modify for larger sizes later
                 if(loss2.data.cpu().numpy()[0] < 26000 and 
-                        (ans_index.numpy()[0] != target_idx.numpy()[0])): ###Check   #Condition that noise levels are thresholded and targetted attack is successful
+                        (ans_index.numpy()[0] == target_idx.numpy()[0])): ###Check   #Condition that noise levels are thresholded and targetted attack is successful
 
                     print(self.VQA_model.index_to_answer[target_idx.numpy()[0]],
                         self.VQA_model.index_to_answer[ans_index.numpy()[0]])
@@ -374,7 +374,7 @@ class Attacker:
                     break
             else:
                 if(loss2.data.cpu().numpy()[0] < 26000 and 
-                        (ans_index.numpy()[0] == target_idx.numpy()[0])): ###Check    #Condition that noise levels are thresholded and untargetted attack is successful
+                        (ans_index.numpy()[0] != target_idx.numpy()[0])): ###Check    #Condition that noise levels are thresholded and untargetted attack is successful
                     img_np1 = self.unorm(img_.data).cpu().numpy()
                     img_cv = np.transpose(img_np1,(0,2,3,1))
                     img_cv = cv2.convertScaleAbs(img_cv.reshape(448,448,3)*255)

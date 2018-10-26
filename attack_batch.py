@@ -332,24 +332,30 @@ class Attacker:
 
             #Attack the image now using attention maps
             purturb = self.attack_model(att_clone)
-            update_map = (torch.FloatTensor(success)).unsqueeze(1).unsqueeze(1).unsqueeze(1).expand_as(img_) #Use success to construct a mask which prevents changes to perturbed images which succeed in attack
+            update_map = Variable((torch.FloatTensor(success)).unsqueeze(1).unsqueeze(1).unsqueeze(1).expand_as(img_clone).cuda()) #Use success to construct a mask which prevents changes to perturbed images which succeed in attack
+            update_map.requires_grad = False
             #Add noise back to image
-            img_ =  (1 - update_map) * (img_clone + purturb) + (update_map * img_) #Update only the images for which success is False
+            if iter_ == 1:
+                img_ = (img_clone + purturb)
+	    else:
+		img_ =  (1 - update_map) * (img_clone + purturb) + (update_map * img_) #Update only the images for which success is False
             #Get answer and attention maps when perturbed image is fed to the VQA network
             ans_t, att_t = self.VQA_model.forward_pass(img_, que, que_len)
 
             #Compute targetted/untargetted loss
             nll = -1 * self.targetted_const * self.log_softmax(ans_t) # self.targetted_const is 1 if untargetted -1 if targetted
             #ans in targetted case is the target but untargetted case is ground truth ans. (nll*ans) controls the correct loss
-            loss1 = (self.scaller_const * ((nll*ans).sum(dim=1) * (1 - torch.FloatTensor(success)))) / torch.sum((1 - torch.FloatTensor(success))) #Dont penalize samples on which success has already been obtained  
+            var_success = Variable(torch.FloatTensor(success).cuda())
+            var_success.requires_grad = False
+            loss1 = ((self.scaller_const * ((nll*ans).sum(dim=1) * (1 - var_success))).sum() / torch.sum((1 - var_success))) #Dont penalize samples on which success has already been obtained  
             #Penalize large noise. Can modify to allow a certain extent of noise
-            mean_noise = torch.abs((1 - update_map) * purturb).mean(dim=3).mean(dim=2).mean(dim=1) / torch.sum((1 - torch.FloatTensor(success)))
-            loss2 = torch.abs((1 - update_map) * purturb).sum() / torch.sum((1 - torch.FloatTensor(success)))  #Penalize only non success cases #Using L1 for now, see if you wanna use L2 instead.
+            mean_noise = torch.abs((1 - update_map) * purturb).mean(dim=3).mean(dim=2).mean(dim=1) / torch.sum((1 - var_success))
+            loss2 = torch.abs((1 - update_map) * purturb).sum() / torch.sum((1 - var_success))  #Penalize only non success cases #Using L1 for now, see if you wanna use L2 instead.
             loss = loss1 + loss2
 
 	    if not val:
             	self.optimizer.zero_grad()
-            	loss.backward()
+            	loss.backward(retain_graph = True)
             	self.optimizer.step()
 
             # get answer index
@@ -374,8 +380,8 @@ class Attacker:
                     #success = True
                     #break
 
-                success = np.logical_and(loss2.data.cpu().numpy()[0] < 26000, (ans_index.numpy()[0] == target_idx.numpy()[0]))
-                if np.sum(success) == len(success):
+                success = np.logical_and(loss2.data.cpu().numpy() < 26000, (ans_index.numpy() == target_idx.numpy()))
+                if np.sum(success) == success.shape[0]:
                         break
             else:
                 #if(loss2.data.cpu().numpy()[0] < 26000 and (ans_index.numpy()[0] == target_idx.numpy()[0])): ###Check    #Condition that noise levels are thresholded and untargetted attack is successful
@@ -388,8 +394,8 @@ class Attacker:
                     #break
 
 
-                success = np.logical_and(loss2.data.cpu().numpy()[0] < 26000, (ans_index.numpy()[0] != target_idx.numpy()[0]))
-                if np.sum(success) == len(success):
+                success = np.logical_and(loss2.data.cpu().numpy() < 26000, (ans_index.numpy() != target_idx.numpy()))
+                if np.sum(success) == success.shape[0]:
 			break
             #print(prob_value, ans_index, target_idx, loss2.data.cpu().numpy(),  loss1.data.cpu().numpy())
 

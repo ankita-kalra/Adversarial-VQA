@@ -178,8 +178,8 @@ def main():
 
     cudnn.benchmark = True
     print("Initialize Data Loaders")
-    train_loader = data.get_loader(train=True)
-    val_loader = data.get_loader(val=True)
+    train_loader = data.get_loader(train=True, batch_size=config.batch_size)
+    val_loader = data.get_loader(val=True, batch_size=config.batch_size)
 
     #net = nn.DataParallel(model.Net(train_loader.dataset.num_tokens)).cuda()
     # Define and loadup the models

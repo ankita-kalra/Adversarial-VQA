@@ -14,7 +14,7 @@ import config_att as config
 import utils
 import pdb
 
-def get_loader(train=False, val=False, test=False):
+def get_loader(train=False, val=False, test=False, batch_size=config.batch_size):
     """ Returns a data loader for the desired split """
     assert train + val + test == 1, 'need to set exactly one of {train, val, test} to True'
     if train:
@@ -35,7 +35,7 @@ def get_loader(train=False, val=False, test=False):
     )
     loader = torch.utils.data.DataLoader(
         split,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         shuffle=train,  # only shuffle the data in training
         pin_memory=True,
         num_workers=config.data_workers,
