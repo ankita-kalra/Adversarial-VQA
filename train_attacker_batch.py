@@ -107,9 +107,11 @@ def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
     orig_tracker = tracker.track('{}_orig'.format(prefix), tracker_class(**tracker_params))
 
-    origs = []
-    successes = []
+    origs = np.array([])
+    successes = np.array([])
     dec_accs = []
+    tot_mean_noise = 0
+    i = 0
     for v, q, a, idx, q_len in tq:
             var_params = {
                 'volatile': not train,
@@ -137,28 +139,22 @@ def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
                 
                 
 
+            origs = np.concatenate((origs, orig))
+            successes = np.concatenate((successes, success))
+            tot_mean_noise += mean_noise.data[0]
+            i += 1   
+  	    orig_tracker.append(np.sum(orig) / orig.shape[0])
 
-            origs.append(orig)
-            successes.append(success)
-            
-            if orig:
-		orig_tracker.append(1)
-	    else:
-		orig_tracker.append(0)
-
-            if orig & success:
-                acc_tracker.append(1)
-            else:
-                acc_tracker.append(0)
+            acc_tracker.append(np.sum(np.logical_and(orig, success)) / orig.shape[0])
             fmt = '{:.4f}'.format
             tq.set_postfix(loss=fmt(loss_tracker.mean.value), noise=fmt(noise_tracker.mean.value), acc=fmt(acc_tracker.mean.value), orig=fmt(orig_tracker.mean.value))
 
-    orig_acc = np.sum(np.array(origs)) / len(origs) #Accuracy of original VQA model
-    att_pred = np.array(origs) & ~(np.array(successes))
-    att_acc = np.sum(np.array(att_pred)) / len(att_pred) #Accuracy of attacked VQA model
+    orig_acc = np.sum(origs) / len(origs) #Accuracy of original VQA model
+    att_pred = np.logical_and(origs, ~(successes))
+    att_acc = np.sum(att_pred) / len(att_pred) #Accuracy of attacked VQA model
     dec_acc = orig_acc - att_acc #Decrease in VQA accuracy
     asucr = dec_acc / orig_acc
-    enr = asucr / mean_noise
+    enr = asucr / (tot_mean_noise / i)
 
     if train:
         return loss1, loss2, dec_acc, asucr, enr, orig_acc, att_acc

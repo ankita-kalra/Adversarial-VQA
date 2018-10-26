@@ -220,11 +220,11 @@ class Attacker:
         #if (target_idx.numpy()[0] == ans_index.numpy()[0]):   #If actual VQA model is right then attack it else dont. #if actual answer same as predicted then attack it
         orig, success, img_cv, loss1, loss2, mean_noise = self.perform(img, que, que_len, ans, total_iterations, True) ################################################################################################################################################ Check. Perform has grads. Not needed in val
         return orig, success, img_cv, loss1, loss2, mean_noise #orig = True as original VQA model is right. success decided by attack. img is perturbed image
-            #return True, False, None 
+        #return True, False, None 
 
 
-            #Try replacing the above 2 lines with this:
-            '''
+        #Try replacing the above 2 lines with this:
+        '''
             #Attack the image now using attention maps
             purturb = self.attack_model(att_)
             #Add noise back to image
@@ -271,7 +271,7 @@ class Attacker:
 
 
             return True, success, img_cv, None, noise, mean_noise
-            '''
+        '''
         #else:
             #return False, False, None, None, None, None #orig = False as the original VQA model itself misclassifies
 
