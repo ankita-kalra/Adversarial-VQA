@@ -14,6 +14,8 @@ import config_att_batch as config
 max_inter = 10
 lr_halflife = config.lr_halflife
 initial_lr = config.init_lr
+lambda1_multiplier = 1
+lambda2_multiplier = 10
 
 def update_learning_rate(optimizer, iteration):
     lr = initial_lr * 0.5**(float(iteration) / lr_halflife)
@@ -155,17 +157,18 @@ class Attacker:
         # putting it into train mode
         self.attack_model.train() 
         # transfer to gpus
-        self.attack_model.cuda()
+        self.attack_model = nn.DataParallel(self.attack_model).cuda()
         # get all the learnable parameters from it
         self.optimizer = optim.Adam([p for p in 
             self.attack_model.parameters() if p.requires_grad])
         # Define softmax
         self.log_softmax = nn.LogSoftmax().cuda()
-        self.scaller_const = Variable(torch.Tensor([10000]).float()).cuda()
+        self.scaller_const = Variable(torch.Tensor([1]).float()).cuda()
 
         # Define unnormalizer
         self.unorm = utils.UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-
+        print("Using lambda_multipliers as: " + str(lambda1_multiplier) + "   lambda2:  " +str(lambda2_multiplier))
+        
         # is it targetted
         self.targetted_const = 1
         if targetted == True:
@@ -324,7 +327,6 @@ class Attacker:
         #Change this to allow for custom learning rates
         #for param_group in self.optimizer.param_groups:
         #    param_group['lr'] = config.init_lr
-        
         while (iter_ < max_inter):
 
             iter_ += 1
@@ -347,11 +349,12 @@ class Attacker:
             #ans in targetted case is the target but untargetted case is ground truth ans. (nll*ans) controls the correct loss
             var_success = Variable(torch.FloatTensor(success).cuda())
             var_success.requires_grad = False
+            #pdb.set_trace()
             loss1 = ((self.scaller_const * ((nll*ans).sum(dim=1) * (1 - var_success))).sum() / torch.sum((1 - var_success))) #Dont penalize samples on which success has already been obtained  
             #Penalize large noise. Can modify to allow a certain extent of noise
             mean_noise = torch.abs((1 - update_map) * purturb).mean(dim=3).mean(dim=2).mean(dim=1) / torch.sum((1 - var_success))
-            loss2 = torch.abs((1 - update_map) * purturb).sum() / torch.sum((1 - var_success))  #Penalize only non success cases #Using L1 for now, see if you wanna use L2 instead.
-            loss = loss1 + loss2
+            loss2 = torch.abs((1 - update_map) * purturb).mean(dim=3).mean(dim=2).mean(dim=1).sum() / torch.sum((1 - var_success))  #Penalize only non success cases #Using L1 for now, see if you wanna use L2 instead.
+            loss = lambda1_multiplier * loss1 + lambda2_multiplier * loss2
 
 	    if not val:
             	self.optimizer.zero_grad()
@@ -380,7 +383,7 @@ class Attacker:
                     #success = True
                     #break
 
-                success = np.logical_and(loss2.data.cpu().numpy() < 26000, (ans_index.numpy() == target_idx.numpy()))
+                success = np.logical_or(success, np.logical_and(loss2.data.cpu().numpy() < 0.26000, (ans_index.numpy() == target_idx.numpy())))
                 if np.sum(success) == success.shape[0]:
                         break
             else:
@@ -394,7 +397,7 @@ class Attacker:
                     #break
 
 
-                success = np.logical_and(loss2.data.cpu().numpy() < 26000, (ans_index.numpy() != target_idx.numpy()))
+                success = np.logical_or(success, np.logical_and(loss2.data.cpu().numpy() < 0.26000, (ans_index.numpy() != target_idx.numpy())))
                 if np.sum(success) == success.shape[0]:
 			break
             #print(prob_value, ans_index, target_idx, loss2.data.cpu().numpy(),  loss1.data.cpu().numpy())

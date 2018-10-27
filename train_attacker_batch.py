@@ -145,7 +145,7 @@ def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
             i += 1   
   	    orig_tracker.append(np.sum(orig) / orig.shape[0])
 
-            acc_tracker.append(np.sum(np.logical_and(orig, success)) / orig.shape[0])
+            acc_tracker.append(np.sum(np.logical_and(orig, ~success)) / orig.shape[0])
             fmt = '{:.4f}'.format
             tq.set_postfix(loss=fmt(loss_tracker.mean.value), noise=fmt(noise_tracker.mean.value), acc=fmt(acc_tracker.mean.value), orig=fmt(orig_tracker.mean.value))
 
