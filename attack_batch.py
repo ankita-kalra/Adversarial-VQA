@@ -6,6 +6,7 @@ import numpy as np
 import torch.nn as nn
 import utils
 import cv2
+import torch.nn.functional as F
 
 import pdb
 
@@ -199,7 +200,7 @@ class Attacker:
         #ans = Variable(torch.from_numpy(ans).cuda(async=True))
         #que_len = Variable(torch.from_numpy(que_len).cuda(async=True))
 
-        ans_, att_ = self.VQA_model.forward_pass(img, que, que_len)
+        ans_, att_, a_ = self.VQA_model.forward_pass(img, que, que_len)
 
         self.targetted_const = 1
 
@@ -302,8 +303,10 @@ class Attacker:
         #que_len = Variable(torch.from_numpy(que_len).cuda(async=True))
 
 	#pdb.set_trace()	
-        ans_, att_ = self.VQA_model.forward_pass(img, que, que_len)
-
+        ans_, att_, a_ = self.VQA_model.forward_pass(img, que, que_len)
+	a_new = F.softmax(a_.view(a_.size(0), a_.size(1), -1), 2)
+        a_ = a_new.view(a_.size(0), a_.size(1), a_.size(2), a_.size(3))        
+        pdb.set_trace()
 
         prob_value, ans_index = ans_.data.cpu().max(dim=1)
         #ans stores the target index for the attack or ground truth for untargetted
@@ -342,7 +345,7 @@ class Attacker:
 	    else:
 		img_ =  (1 - update_map) * (img_clone + purturb) + (update_map * img_) #Update only the images for which success is False
             #Get answer and attention maps when perturbed image is fed to the VQA network
-            ans_t, att_t = self.VQA_model.forward_pass(img_, que, que_len)
+            ans_t, att_t, a_t = self.VQA_model.forward_pass(img_, que, que_len)
 
             #Compute targetted/untargetted loss
             nll = -1 * self.targetted_const * self.log_softmax(ans_t) # self.targetted_const is 1 if untargetted -1 if targetted

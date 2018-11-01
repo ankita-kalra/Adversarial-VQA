@@ -54,7 +54,7 @@ class Net(nn.Module):
 
         combined = torch.cat([v, q], dim=1)
         answer = self.classifier(combined)
-        return answer, att #Return both answer and the attention maps. Modified from original here
+        return answer, att, a #Return both answer, weighted att maps and the attention maps. Modified from original here
 
 
 class Classifier(nn.Sequential):

@@ -7,6 +7,15 @@ import torchvision.transforms as transforms
 
 import config
 
+def sent_from_que(que, vocab_dict):
+	i = 0
+	sent = ''
+	while que[i] != 0:
+		sent = sent + vocab_dict[que[i]] + ' '
+		i += 1
+
+        return sent
+
 class UnNormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
