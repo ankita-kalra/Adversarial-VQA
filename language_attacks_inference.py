@@ -20,6 +20,25 @@ from attack_batch import Attacker as Attacker
 from attack_batch import CarliniAttacker as CarliniAttacker
 import pickle
 import numpy as np
+import pdb
+
+f = open(config.log_path, 'w')
+q_dict = np.load('q_dict.npy').item()
+a_dict = np.load('a_dict.npy').item()
+
+def sent_from_que(que, max_q_len=28):
+    i = 0
+    sent = ''
+    while i  < max_q_len and que[i] != 247:
+	if que[i] == 0:
+		if i + 1 < max_q_len and que[i + 1] != 0:
+			sent = sent + '<unk> '
+		else:
+			return sent
+	else: 
+        	sent = sent + q_dict[que[i]] + ' '
+        i += 1
+    return sent
 
 
 def update_learning_rate(optimizer, iteration):
@@ -30,7 +49,96 @@ def update_learning_rate(optimizer, iteration):
 
 total_iterations = 0
 
+###########################################################################################################
+#Functions for visual analysis
+##########################################################################################################
+unorm = utils.UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
 
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0) # only difference
+
+def save_class_activation_on_image(img_cv, activation_map, path_to_file=None):
+    """
+        Saves and returns cam  activation map on the original image
+    Args:
+        img_cv (PIL img): Original image
+        activation_map (numpy arr): activation map (grayscale) 0-255
+        path_to_file (str): path to store the visualization map to
+    """
+
+    # Heatmap of activation map
+    activation_heatmap = cv2.applyColorMap(activation_map, cv2.COLORMAP_HSV)
+    #path_to_file = os.path.join('../results', file_name+'_Cam_Heatmap.jpg')
+    #cv2.imwrite(path_to_file, activation_heatmap)
+    # Heatmap on picture
+    #img_cv = cv2.resize(img_cv, (448, 448))
+    img_with_heatmap = np.float32(activation_heatmap) + np.float32(img_cv)
+    img_with_heatmap = img_with_heatmap / np.max(img_with_heatmap)
+    #path_to_file = os.path.join('../results', file_name+'_Cam_On_Image.jpg')
+    final_img = np.uint8(255 * img_with_heatmap)
+    if path_to_file != None:
+        cv2.imwrite(path_to_file, final_img)
+
+    return final_img
+
+def vis_attention(img, q, ans, att_map, path=None):
+    '''
+    Function to visualize the attention maps:  
+    img: 3 X 448 X 448 (pytorch variable)
+    q: 23 (numpy array)
+    ans: 1 (int)
+
+    returns: att_map over image, questions in english, answers in english
+    '''
+
+    q_dict = np.load('q_dict.npy').item()
+    a_dict = np.load('a_dict.npy').item()
+    unorm = utils.UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+
+
+    sent = sent_from_que(q, q_dict)
+    anss = (a_dict[ans])
+
+    #Resize att map to full res
+    rsz_att_map = cv2.resize(5 * att_map.data.cpu().numpy(), (img.size(2), img.size(2)))    #5 * att values to make maps more salient
+    #Convert to 0-255 range
+    final_att = np.uint8(255 * rsz_att_map)
+
+
+    img_np1 = unorm(img.data).cpu().numpy()
+    #COnvert Image to PIL format
+    img_cv = np.transpose(img_np1,(1,2,0))
+    img_cv = cv2.convertScaleAbs(img_cv.reshape(448,448,3)*255)
+
+
+    att_over_img = save_class_activation_on_image(img_cv, final_att, path)
+
+    return att_over_img, sent, anss
+
+
+def save_image(image, path=None):
+    '''
+    image: 3 X 448 X 448 (Pytorch variable directly)
+
+    saves the image as a png image
+    '''
+
+    img_np1 = unorm(image.data).cpu().numpy()
+    img_cv = np.transpose(img_np1,(1,2,0))
+    img_cv = cv2.convertScaleAbs(img_cv.reshape(448,448,3)*255)
+    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+    if path != None:
+        cv2.imwrite(path, img_cv)
+##################################################################################################################################################################
+
+
+
+
+################################################################
+#Main workhorse function for language attack inference
+#################################################################
 def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
     """ Run an epoch over the given loader """
     if train:
@@ -72,6 +180,12 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
                 #noise_tracker.append(loss2.data[0])
 
                 ans_, att_, a_ = vqa_model.forward_pass(v, q, q_len)
+        	
+
+		a_new = F.softmax(a_.view(a_.size(0), a_.size(1), -1), 2)
+        	a_new = a_new.view(a_.size(0), a_.size(1), a_.size(2), a_.size(3))
+
+
 
                 prob_value, ans_index = ans_.data.cpu().max(dim=1)
                 #ans stores the target index for the attack or ground truth for untargetted
@@ -79,9 +193,23 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
 
                 orig = (ans_index == target_idx).numpy()
                 
-                
 
+	    que = q.cpu().data.numpy()
+	    ans = a.cpu().data.numpy()
+	    max_q_len = que.shape[1]
+	    pdb.set_trace()
+	    for j in range(que.shape[0]):
+		ques = que[j]
+		sent = sent_from_que(ques, max_q_len)
+		anss = a_dict[target_idx[j]]
+		pred_ans = a_dict[ans_index[j]]
+#		if ans_index[j] == target_idx[j]:
+#			f.write("Correct!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')      
+#		else:
+#			f.write("Wrong!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')          
+		print(str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')
 
+	    #pdb.set_trace()
 
             acc_tracker.append(np.sum(orig) / orig.shape[0])
             origs = np.concatenate((origs, orig))
@@ -167,4 +295,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+    f.close()
 

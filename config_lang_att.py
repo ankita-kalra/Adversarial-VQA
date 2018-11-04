@@ -9,7 +9,7 @@ qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco
 apath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/mscoco_val2014_annotations.json"
 
 fdict_path = '/home/akalra1/projects/adversarial-attacks/show_ask_answer/pytorch-vqa/id_to_filename_'
-
+log_path = "log_original.txt"
 task = 'OpenEnded'
 dataset = 'mscoco'
 
@@ -22,7 +22,7 @@ central_fraction = 0.875  # only take this much of the centre when scaling and c
 
 # training config
 epochs = 50
-batch_size = 2  #Need to modify code to support batch_sizes greater than 1
+batch_size = 50  #Need to modify code to support batch_sizes greater than 1
 init_lr = 5e-3  # default Adam lr
 lr_halflife = 50000  # in iterations
 data_workers = 8

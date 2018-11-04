@@ -306,7 +306,7 @@ class Attacker:
         ans_, att_, a_ = self.VQA_model.forward_pass(img, que, que_len)
 	a_new = F.softmax(a_.view(a_.size(0), a_.size(1), -1), 2)
         a_ = a_new.view(a_.size(0), a_.size(1), a_.size(2), a_.size(3))        
-        pdb.set_trace()
+        #pdb.set_trace()
 
         prob_value, ans_index = ans_.data.cpu().max(dim=1)
         #ans stores the target index for the attack or ground truth for untargetted
