@@ -72,24 +72,24 @@ def fgsm(v, epsilon=0.1):
     v_adversarial = torch.clamp(v.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
     return Variable(v_adversarial)
 
-def ifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10):
+def ifgsm(v, q, a, q_len, vqa_model, steps = 3, epsilon = 0.1/3):
     '''
     Iterative fast gradient sign method (I-FGSM) : https://arxiv.org/pdf/1611.01236.pdf
     '''
     log_softmax = nn.LogSoftmax().cuda()
     v_grad   = torch.sign(v.grad.data)
-    v_adversarial = Variable(torch.clamp(v.data + epsilon * v_grad, 0, 1))    #Clamp noise to [0,1]
+    v_adversarial = Variable(torch.clamp(v.data + epsilon * v_grad, 0, 1), requires_grad=True)    #Clamp noise to [0,1]
     for i in range(steps-1):
             ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
             nll = -log_softmax(ans_)
             loss = (nll * a / 10).sum(dim=1).mean()
             loss.backward()
             v_grad   = torch.sign(v_adversarial.grad.data)
-            v_adversarial = Variable(torch.clamp(v_adversarial.data + epsilon * v_grad, 0, 1))    #Clamp noise to [0,1]
+            v_adversarial = Variable(torch.clamp(v_adversarial.data + epsilon * v_grad, 0, 1), requires_grad=True)    #Clamp noise to [0,1]
 
     return v_adversarial
 
-def mifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10, mu=1.0): 
+def mifgsm(v, q, a, q_len, vqa_model, steps = 3, epsilon = 0.1/3, mu=1.0): 
     '''
     Boosting Adversarial attacks with Momentum (MI-FGSM): https://arxiv.org/pdf/1710.06081.pdf
     '''
@@ -280,7 +280,7 @@ def save_image(image, path=None):
 ################################################################
 #Main workhorse function for Baseline attacks
 #################################################################
-def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0.1 ):
+def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0.1 , steps=3, mu=1.0):
     """ Run an epoch over the given loader """
     if train:
         #attacker.train()
@@ -321,8 +321,8 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             #acc = utils.batch_accuracy(out.data, a.data).cpu()
 
             # Call the attack model      
-            v_adversarial = fgsm(v, epsilon)
-            #v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
+            #v_adversarial = fgsm(v, epsilon)
+            v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
 
             #Reclassify with adversarial sample
             ans_adv, att_adv, a_adv = vqa_model.forward_pass(v_adversarial, q, q_len)
@@ -377,6 +377,9 @@ def main():
 
     #Define attack noise step size to create perturbation
     epsilon = 0.1 
+    steps = 3
+    mu = 1.0
+
 
     # Define attacker
     #print("Load Attacker model")
@@ -398,7 +401,7 @@ def main():
         #acc = run(vqa_model, train_loader, tracker, train=True, prefix='train', epoch=i)
 
         #Run inference
-        acc, adv_acc = run(vqa_model, val_loader, tracker, train=False, prefix='val', epoch=i, epsilon=epsilon)
+        acc, adv_acc = run(vqa_model, val_loader, tracker, train=False, prefix='val', epoch=i, epsilon=epsilon, steps=steps, mu=mu)
 
         print("Epoch " + str(i) +" : Inference Results: Accuracy: "+ str(acc)+" : Adversarial Accuracy: "+ str(adv_acc)) 
 
