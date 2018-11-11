@@ -13,7 +13,7 @@ from tqdm import tqdm
 import cv2
 import torch.nn.functional as F
 
-import config_lang_att as config
+import config_baseline as config
 import data_for_inference as data
 import att_model as model
 import utils
@@ -33,14 +33,14 @@ def sent_from_que(que, max_q_len=28):
     i = 0
     sent = ''
     while i  < max_q_len and que[i] != 247:
-	if que[i] == 0:
-		if i + 1 < max_q_len and que[i + 1] != 0:
-			sent = sent + '<unk> '
-		else:
-			return sent
-	else: 
-        	sent = sent + q_dict[que[i]] + ' '
-        i += 1
+    	if que[i] == 0:
+        	if i + 1 < max_q_len and que[i + 1] != 0:
+            		sent = sent + '<unk> '
+        else:
+            return sent
+    else: 
+            sent = sent + q_dict[que[i]] + ' '
+            i += 1
     return sent
 
 
@@ -63,42 +63,42 @@ total_iterations = 0
 ###########################################################################################################
 
 def fgsm(v, epsilon=0.1):
-	'''
-	Fast Gradient Sign Method: https://arxiv.org/pdf/1412.6572.pdf
+    '''
+    Fast Gradient Sign Method: https://arxiv.org/pdf/1412.6572.pdf
     v: image and v.grad stores gradients
-	'''
+    '''
     
     v_grad   = torch.sign(v.grad.data)
     v_adversarial = torch.clamp(v.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
-    return v_adversarial
+    return Variable(v_adversarial)
 
 def ifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10):
-	'''
-	Iterative fast gradient sign method (I-FGSM) : https://arxiv.org/pdf/1611.01236.pdf
-	'''
+    '''
+    Iterative fast gradient sign method (I-FGSM) : https://arxiv.org/pdf/1611.01236.pdf
+    '''
     log_softmax = nn.LogSoftmax().cuda()
     v_grad   = torch.sign(v.grad.data)
-    v_adversarial = torch.clamp(v.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
+    v_adversarial = Variable(torch.clamp(v.data + epsilon * v_grad, 0, 1))    #Clamp noise to [0,1]
     for i in range(steps-1):
             ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
             nll = -log_softmax(ans_)
             loss = (nll * a / 10).sum(dim=1).mean()
             loss.backward()
             v_grad   = torch.sign(v_adversarial.grad.data)
-            v_adversarial = torch.clamp(v_adversarial.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
+            v_adversarial = Variable(torch.clamp(v_adversarial.data + epsilon * v_grad, 0, 1))    #Clamp noise to [0,1]
 
     return v_adversarial
 
-def mifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10, mu=1.0):	
+def mifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10, mu=1.0): 
     '''
-	Boosting Adversarial attacks with Momentum (MI-FGSM): https://arxiv.org/pdf/1710.06081.pdf
-	'''
+    Boosting Adversarial attacks with Momentum (MI-FGSM): https://arxiv.org/pdf/1710.06081.pdf
+    '''
 
     log_softmax = nn.LogSoftmax().cuda()
     v_grad   = v.grad.data
     g = Variable(torch.zeros(v_grad.size(0), v_grad.size(1), v_grad.size(2), v_grad.size(3)).cuda())
     g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
-    v_adversarial = torch.clamp(v.data + epsilon * torch.sign(g), 0, 1)    #Clamp noise to [0,1]
+    v_adversarial = Variable(torch.clamp(v.data + epsilon * torch.sign(g), 0, 1))    #Clamp noise to [0,1]
     for i in range(steps-1):
             ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
             nll = -log_softmax(ans_)
@@ -106,7 +106,7 @@ def mifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10, mu=1.0):
             loss.backward()
             v_grad   = v.grad.data
             g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
-            v_adversarial = torch.clamp(v.data + epsilon * torch.sign(g), 0, 1)    #Clamp noise to [0,1]
+            v_adversarial = Variable(torch.clamp(v.data + epsilon * torch.sign(g), 0, 1))    #Clamp noise to [0,1]
 
     return v_adversarial
 
@@ -301,7 +301,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
 
     for v, q, a, idx, q_len in tq:
             var_params = {
-                'volatile': not train,
+                'volatile': False,
                 'requires_grad': False,
             }
             var_params_im = {
@@ -314,6 +314,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             q_len = Variable(q_len.cuda(async=True), **var_params)
 
             ans_, att_, a_ = vqa_model.forward_pass(v, q, q_len) 
+	    #pdb.set_trace()
             nll = -log_softmax(ans_)
             loss = (nll * a / 10).sum(dim=1).mean()
             loss.backward()
