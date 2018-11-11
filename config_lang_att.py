@@ -6,6 +6,12 @@ test_path = '/home/akalra1/projects/adversarial-attacks/data/vqa_v1/test_im/test
 preprocessed_path = './resnet-14x14.h5'  # path where preprocessed features are saved to and loaded from
 vocabulary_path = './vocab.json'  # path where the used vocabularies for question and answers are saved to
 qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_val2014_questions.json"
+#qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_val2014_questions_sub_obj_main_verb_head_replaced.json"
+#qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_val2014_questions_sub_obj_head_replaced.json"
+#qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_val2014_questions_prefix_3.json" 
+#qpath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_val2014_questions_prefix_union.json"
+
+
 apath = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/mscoco_val2014_annotations.json"
 
 fdict_path = '/home/akalra1/projects/adversarial-attacks/show_ask_answer/pytorch-vqa/id_to_filename_'
@@ -22,7 +28,7 @@ central_fraction = 0.875  # only take this much of the centre when scaling and c
 
 # training config
 epochs = 50
-batch_size = 50  #Need to modify code to support batch_sizes greater than 1
+batch_size = 150  #Need to modify code to support batch_sizes greater than 1
 init_lr = 5e-3  # default Adam lr
 lr_halflife = 50000  # in iterations
 data_workers = 8

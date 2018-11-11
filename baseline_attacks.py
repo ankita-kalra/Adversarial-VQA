@@ -52,6 +52,141 @@ def update_learning_rate(optimizer, iteration):
 
 total_iterations = 0
 
+
+###########################################################################################################
+#Baseline attacks
+#1. Fast Gradient Sign
+#2. Iterated Fast Gradient Sign
+#3. Adaptive Momentum based Fast Gradient Sign
+#4. DeepFool (tentative)
+#5. Carlini (not present here but in the main attack file)
+###########################################################################################################
+
+def fgsm(v, epsilon=0.1):
+	'''
+	Fast Gradient Sign Method: https://arxiv.org/pdf/1412.6572.pdf
+    v: image and v.grad stores gradients
+	'''
+    
+    v_grad   = torch.sign(v.grad.data)
+    v_adversarial = torch.clamp(v.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
+    return v_adversarial
+
+def ifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10):
+	'''
+	Iterative fast gradient sign method (I-FGSM) : https://arxiv.org/pdf/1611.01236.pdf
+	'''
+    log_softmax = nn.LogSoftmax().cuda()
+    v_grad   = torch.sign(v.grad.data)
+    v_adversarial = torch.clamp(v.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
+    for i in range(steps-1):
+            ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
+            nll = -log_softmax(ans_)
+            loss = (nll * a / 10).sum(dim=1).mean()
+            loss.backward()
+            v_grad   = torch.sign(v_adversarial.grad.data)
+            v_adversarial = torch.clamp(v_adversarial.data + epsilon * v_grad, 0, 1)    #Clamp noise to [0,1]
+
+    return v_adversarial
+
+def mifgsm(v, q, a, q_len, vqa_model, steps = 10, epsilon = 16/10, mu=1.0):	
+    '''
+	Boosting Adversarial attacks with Momentum (MI-FGSM): https://arxiv.org/pdf/1710.06081.pdf
+	'''
+
+    log_softmax = nn.LogSoftmax().cuda()
+    v_grad   = v.grad.data
+    g = Variable(torch.zeros(v_grad.size(0), v_grad.size(1), v_grad.size(2), v_grad.size(3)).cuda())
+    g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
+    v_adversarial = torch.clamp(v.data + epsilon * torch.sign(g), 0, 1)    #Clamp noise to [0,1]
+    for i in range(steps-1):
+            ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
+            nll = -log_softmax(ans_)
+            loss = (nll * a / 10).sum(dim=1).mean()
+            loss.backward()
+            v_grad   = v.grad.data
+            g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
+            v_adversarial = torch.clamp(v.data + epsilon * torch.sign(g), 0, 1)    #Clamp noise to [0,1]
+
+    return v_adversarial
+
+
+
+def deepfool(im, net, lambda_fac=3., num_classes=10, overshoot=0.02, max_iter=50, device='cuda'): #Needs to be modified
+    '''
+    DeepFool: https://arxiv.org/abs/1511.04599
+    Implementation adapted from: https://github.com/LTS4/SparseFool
+    
+    '''
+    image = copy.deepcopy(im)
+    input_shape = image.size()
+
+    f_image = net.forward(Variable(image, requires_grad=True)).data.cpu().numpy().flatten()
+    I = (np.array(f_image)).flatten().argsort()[::-1]
+    I = I[0:num_classes]
+    label = I[0]
+
+    pert_image = copy.deepcopy(image)
+    r_tot = torch.zeros(input_shape).to(device)
+
+    k_i = label
+    loop_i = 0
+
+    while k_i == label and loop_i < max_iter:
+
+        x = Variable(pert_image, requires_grad=True)
+        fs = net.forward(x)
+
+        pert = torch.Tensor([np.inf])[0].to(device)
+        w = torch.zeros(input_shape).to(device)
+
+        fs[0, I[0]].backward(retain_graph=True)
+        grad_orig = copy.deepcopy(x.grad.data)
+
+        for k in range(1, num_classes):
+            zero_gradients(x)
+
+            fs[0, I[k]].backward(retain_graph=True)
+            cur_grad = copy.deepcopy(x.grad.data)
+
+            w_k = cur_grad - grad_orig
+            f_k = (fs[0, I[k]] - fs[0, I[0]]).data
+
+            pert_k = torch.abs(f_k) / w_k.norm()
+
+            if pert_k < pert:
+                pert = pert_k + 0.
+                w = w_k + 0.
+
+        r_i = torch.clamp(pert, min=1e-4) * w / w.norm()
+        r_tot = r_tot + r_i
+
+        pert_image = pert_image + r_i
+
+        check_fool = image + (1 + overshoot) * r_tot
+        k_i = torch.argmax(net.forward(Variable(check_fool, requires_grad=True)).data).item()
+
+        loop_i += 1
+
+    x = Variable(pert_image, requires_grad=True)
+    fs = net.forward(x)
+    (fs[0, k_i] - fs[0, label]).backward(retain_graph=True)
+    grad = x.grad.data
+
+    r_tot = lambda_fac * r_tot
+    pert_image = image + r_tot
+
+    return grad, pert_image
+
+
+
+
+
+
+
+
+
+
 ###########################################################################################################
 #Functions for visual analysis
 ##########################################################################################################
@@ -143,9 +278,9 @@ def save_image(image, path=None):
 
 
 ################################################################
-#Main workhorse function for language attack inference
+#Main workhorse function for Baseline attacks
 #################################################################
-def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
+def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0.1 ):
     """ Run an epoch over the given loader """
     if train:
         #attacker.train()
@@ -156,9 +291,11 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
 
     tq = tqdm(loader, desc='{} E{:03d}'.format(prefix, epoch), ncols=0)
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
-    
+    adv_acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
+    log_softmax = nn.LogSoftmax().cuda()
 
     origs = np.array([])
+    origs_adv = np.array([])
     i = 0
     bi = 0
 
@@ -167,70 +304,48 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
                 'volatile': not train,
                 'requires_grad': False,
             }
-            v = Variable(v.cuda(async=True), **var_params)
+            var_params_im = {
+                'volatile': False,
+                'requires_grad': True,
+            }
+            v = Variable(v.cuda(async=True), **var_params_im)   #Need gradients here
             q = Variable(q.cuda(async=True), **var_params)
             a = Variable(a.cuda(async=True), **var_params)
             q_len = Variable(q_len.cuda(async=True), **var_params)
 
-            if train:
-                global total_iterations
-                #orig, success, img, loss1, loss2, mean_noise = attacker.perform(v, q, q_len, a, total_iterations)
+            ans_, att_, a_ = vqa_model.forward_pass(v, q, q_len) 
+            nll = -log_softmax(ans_)
+            loss = (nll * a / 10).sum(dim=1).mean()
+            loss.backward()
+            #acc = utils.batch_accuracy(out.data, a.data).cpu()
 
-                #Update Learning rate. Use smooth decay. Can replace by decrease_on_plateau scheduler
-                #total_iterations += 1
-                #update_learning_rate(optimizer, total_iterations)
-                #loss_tracker.append(loss1.data[0] + loss2.data[0])
-                #noise_tracker.append(loss2.data[0])
-                
-            else:
-                #orig, success, img, _, loss2, mean_noise = attacker.perform_validation(v, q, q_len, a, total_iterations)
-                #loss_tracker.append(loss2.data[0]) #Tracks only the noise. Not the entire loss
-                #noise_tracker.append(loss2.data[0])
+            # Call the attack model      
+            v_adversarial = fgsm(v, epsilon)
+            #v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
 
-                ans_, att_, a_ = vqa_model.forward_pass(v, q, q_len)
-        	
-
-		a_new = F.softmax(a_.view(a_.size(0), a_.size(1), -1), 2)
-        	a_new = a_new.view(a_.size(0), a_.size(1), a_.size(2), a_.size(3))
+            #Reclassify with adversarial sample
+            ans_adv, att_adv, a_adv = vqa_model.forward_pass(v_adversarial, q, q_len)
 
 
 
-                prob_value, ans_index = ans_.data.cpu().max(dim=1)
-                #ans stores the target index for the attack or ground truth for untargetted
-                _, target_idx = a.data.cpu().max(dim=1)
+            prob_value, ans_index = ans_.data.cpu().max(dim=1)
+            prob_value_adv, ans_index_adv = ans_adv.data.cpu().max(dim=1)
+            #ans stores the target index for the attack or ground truth for untargetted
+            _, target_idx = a.data.cpu().max(dim=1)
 
-                orig = (ans_index == target_idx).numpy()
+            orig = (ans_index == target_idx).numpy()
+            orig_adv = (ans_index_adv == target_idx).numpy()
                 
 
-	    que = q.cpu().data.numpy()
-	    ans = a.cpu().data.numpy()
-	    max_q_len = que.shape[1]
-	    path = None
-	    multiplier=10
-            if bi == 0:
-	    	pdb.set_trace()
-            	att_over_img, sent, anss = vis_attention(v[38], que[38], target_idx[38], a_new[38, 0], path, multiplier)
-	    	pdb.set_trace()
 
-	    	for j in range(que.shape[0]):
-			ques = que[j]
-			sent = sent_from_que(ques, max_q_len)
-			anss = a_dict[target_idx[j]]
-			pred_ans = a_dict[ans_index[j]]
-#			if ans_index[j] == target_idx[j]:
-#				f.write("Correct!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')      
-#			else:
-#				f.write("Wrong!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')          
-			print(str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')
-
-	    #pdb.set_trace()
-	    bi += 1
             acc_tracker.append(np.sum(orig) / orig.shape[0])
+            adv_acc_tracker.append(np.sum(orig_adv) / orig_adv.shape[0])
             origs = np.concatenate((origs, orig))
+            origs_adv = np.concatenate((origs_adv, orig_adv))
             fmt = '{:.4f}'.format
-            tq.set_postfix(acc=fmt(acc_tracker.mean.value))
+            tq.set_postfix(acc=fmt(acc_tracker.mean.value), adv_acc=fmt(adv_acc_tracker.mean.value))
 
-    return (np.sum(origs) / origs.shape[0])
+    return (np.sum(origs) / origs.shape[0]), (np.sum(origs_adv) / origs_adv.shape[0])
 
             
 
@@ -259,6 +374,9 @@ def main():
     # Get question and vocab answer
     vocab = vqa_model.get_vocab()
 
+    #Define attack noise step size to create perturbation
+    epsilon = 0.1 
+
     # Define attacker
     #print("Load Attacker model")
     #Uncomment this for AttendAndAttackNet
@@ -279,9 +397,9 @@ def main():
         #acc = run(vqa_model, train_loader, tracker, train=True, prefix='train', epoch=i)
 
         #Run inference
-        acc = run(vqa_model, val_loader, tracker, train=False, prefix='val', epoch=i)
+        acc, adv_acc = run(vqa_model, val_loader, tracker, train=False, prefix='val', epoch=i, epsilon=epsilon)
 
-        print("Epoch " + str(i) +" : Inference Results: Accuracy: "+ str(acc)) 
+        print("Epoch " + str(i) +" : Inference Results: Accuracy: "+ str(acc)+" : Adversarial Accuracy: "+ str(adv_acc)) 
 
         '''
         if i % eval_after_epochs == 0:
@@ -310,4 +428,3 @@ def main():
 if __name__ == '__main__':
     main()
     #f.close()
-
