@@ -292,12 +292,14 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
     tq = tqdm(loader, desc='{} E{:03d}'.format(prefix, epoch), ncols=0)
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
     adv_acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
+    noise_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
     log_softmax = nn.LogSoftmax().cuda()
 
     origs = np.array([])
     origs_adv = np.array([])
     i = 0
     bi = 0
+    tot_noise = 0
 
     for v, q, a, idx, q_len in tq:
             var_params = {
@@ -324,6 +326,9 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             #v_adversarial = fgsm(v, epsilon)
             v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
 
+	    #Track noise added
+	    noise_tracker.append( torch.mean(torch.abs(v - v_adversarial)).data.cpu().numpy()[0])
+	    #pdb.set_trace()
             #Reclassify with adversarial sample
             ans_adv, att_adv, a_adv = vqa_model.forward_pass(v_adversarial, q, q_len)
 
@@ -344,7 +349,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             origs = np.concatenate((origs, orig))
             origs_adv = np.concatenate((origs_adv, orig_adv))
             fmt = '{:.4f}'.format
-            tq.set_postfix(acc=fmt(acc_tracker.mean.value), adv_acc=fmt(adv_acc_tracker.mean.value))
+            tq.set_postfix(acc=fmt(acc_tracker.mean.value), adv_acc=fmt(adv_acc_tracker.mean.value), noise=fmt(noise_tracker.mean.value))
 
     return (np.sum(origs) / origs.shape[0]), (np.sum(origs_adv) / origs_adv.shape[0])
 
