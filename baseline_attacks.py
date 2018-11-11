@@ -95,18 +95,18 @@ def mifgsm(v, q, a, q_len, vqa_model, steps = 3, epsilon = 0.1/3, mu=1.0):
     '''
 
     log_softmax = nn.LogSoftmax().cuda()
-    v_grad   = v.grad.data
-    g = Variable(torch.zeros(v_grad.size(0), v_grad.size(1), v_grad.size(2), v_grad.size(3)).cuda())
-    g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
-    v_adversarial = Variable(torch.clamp(v.data + epsilon * torch.sign(g), 0, 1))    #Clamp noise to [0,1]
+    v_grad   = v.grad
+    g = Variable(torch.zeros(v_grad.size(0), v_grad.size(1), v_grad.size(2), v_grad.size(3)).cuda(), requires_grad=True)
+    g = mu * g + (v_grad / torch.mean(torch.abs(v_grad)))
+    v_adversarial = Variable(torch.clamp(v.data + epsilon * torch.sign(g.data), 0, 1), requires_grad=True)    #Clamp noise to [0,1]
     for i in range(steps-1):
             ans_, att_, a_ = vqa_model.forward_pass(v_adversarial, q, q_len) 
             nll = -log_softmax(ans_)
             loss = (nll * a / 10).sum(dim=1).mean()
             loss.backward()
-            v_grad   = v.grad.data
-            g = mu * g + v_grad / torch.mean(torch.abs(v_grad))
-            v_adversarial = Variable(torch.clamp(v.data + epsilon * torch.sign(g), 0, 1))    #Clamp noise to [0,1]
+            v_grad   = v_adversarial.grad
+            g = mu * g + (v_grad / torch.mean(torch.abs(v_grad)))
+            v_adversarial = Variable(torch.clamp(v_adversarial.data + epsilon * torch.sign(g.data), 0, 1), requires_grad=True)    #Clamp noise to [0,1]
 
     return v_adversarial
 
@@ -324,7 +324,8 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
 
             # Call the attack model      
             #v_adversarial = fgsm(v, epsilon)
-            v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
+            #v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
+	    v_adversarial = mifgsm(v, q, a, q_len, vqa_model, steps, epsilon, mu)
 
 	    #Track noise added
 	    noise_tracker.append( torch.mean(torch.abs(v - v_adversarial)).data.cpu().numpy()[0])
@@ -381,7 +382,7 @@ def main():
     vocab = vqa_model.get_vocab()
 
     #Define attack noise step size to create perturbation
-    epsilon = 0.1 
+    epsilon = 0.2 / 255 
     steps = 3
     mu = 1.0
 
