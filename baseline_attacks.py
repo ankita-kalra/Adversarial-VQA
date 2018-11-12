@@ -25,7 +25,7 @@ import pickle
 import numpy as np
 import pdb
 
-#f = open(config.log_path, 'w')
+f = open(config.log_path, 'w')
 q_dict = np.load('q_dict.npy').item()
 a_dict = np.load('a_dict.npy').item()
 
@@ -36,11 +36,11 @@ def sent_from_que(que, max_q_len=28):
     	if que[i] == 0:
         	if i + 1 < max_q_len and que[i + 1] != 0:
             		sent = sent + '<unk> '
-        else:
-            return sent
-    else: 
+        	else:
+            		return sent
+    	else: 
             sent = sent + q_dict[que[i]] + ' '
-            i += 1
+        i += 1
     return sent
 
 
@@ -76,6 +76,7 @@ def ifgsm(v, q, a, q_len, vqa_model, steps = 3, epsilon = 0.1/3):
     '''
     Iterative fast gradient sign method (I-FGSM) : https://arxiv.org/pdf/1611.01236.pdf
     '''
+    epsilon = epsilon / steps
     log_softmax = nn.LogSoftmax().cuda()
     v_grad   = torch.sign(v.grad.data)
     v_adversarial = Variable(torch.clamp(v.data + epsilon * v_grad, 0, 1), requires_grad=True)    #Clamp noise to [0,1]
@@ -93,7 +94,7 @@ def mifgsm(v, q, a, q_len, vqa_model, steps = 3, epsilon = 0.1/3, mu=1.0):
     '''
     Boosting Adversarial attacks with Momentum (MI-FGSM): https://arxiv.org/pdf/1710.06081.pdf
     '''
-
+    epsilon = epsilon / steps
     log_softmax = nn.LogSoftmax().cuda()
     v_grad   = v.grad
     g = Variable(torch.zeros(v_grad.size(0), v_grad.size(1), v_grad.size(2), v_grad.size(3)).cuda(), requires_grad=True)
@@ -352,6 +353,22 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             fmt = '{:.4f}'.format
             tq.set_postfix(acc=fmt(acc_tracker.mean.value), adv_acc=fmt(adv_acc_tracker.mean.value), noise=fmt(noise_tracker.mean.value))
 
+
+	    #Logging to compute question type wise accuracy
+            que = q.cpu().data.numpy()
+            ans = a.cpu().data.numpy()
+            max_q_len = que.shape[1]
+            for j in range(que.shape[0]):
+                        ques = que[j]
+                        sent = sent_from_que(ques, max_q_len)
+                        anss = a_dict[target_idx[j]]
+                        pred_ans = a_dict[ans_index_adv[j]]
+                        if ans_index_adv[j] == target_idx[j]:
+                                f.write("Correct!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')      
+                        else:
+                                f.write("Wrong!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')          
+                        print(str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')
+
     return (np.sum(origs) / origs.shape[0]), (np.sum(origs_adv) / origs_adv.shape[0])
 
             
@@ -361,11 +378,11 @@ def main():
     total_iterations = 1
  
     if len(sys.argv) > 1:
-        name = 'lang_attacker_' + (' '.join(sys.argv[1:]))
+        name = 'baseline_attacker_' + (' '.join(sys.argv[1:]))
     else:
         from datetime import datetime
         name = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    target_name = os.path.join('logs', 'lang_attacker_{}.pth'.format(name))
+    target_name = os.path.join('logs', 'baseline_attacker_{}.pth'.format(name))
     print('will save to {}'.format(target_name))
 
     cudnn.benchmark = True
@@ -382,7 +399,7 @@ def main():
     vocab = vqa_model.get_vocab()
 
     #Define attack noise step size to create perturbation
-    epsilon = 0.2 / 255 
+    epsilon = 0.4 / 255 
     steps = 3
     mu = 1.0
 
@@ -437,4 +454,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    #f.close()
+    f.close()
