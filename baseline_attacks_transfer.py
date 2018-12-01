@@ -14,7 +14,7 @@ import cv2
 import torch.nn.functional as F
 
 import config_baseline as config
-import data_for_inference as data
+import data_for_transfer as data
 import att_model as model
 import utils
 
@@ -28,6 +28,7 @@ import pdb
 f = open(config.log_path, 'w')
 q_dict = np.load('q_dict.npy').item()
 a_dict = np.load('a_dict.npy').item()
+val_storage_dir = '/home/akalra1/projects/adversarial-attacks/data/vqa_v1/adv_imgs/'
 
 def sent_from_que(que, max_q_len=28):
     i = 0
@@ -302,7 +303,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
     bi = 0
     tot_noise = 0
 
-    for v, q, a, idx, q_len in tq:
+    for v, q, a, fname, idx, q_len in tq:
             var_params = {
                 'volatile': False,
                 'requires_grad': False,
@@ -316,8 +317,10 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             a = Variable(a.cuda(async=True), **var_params)
             q_len = Variable(q_len.cuda(async=True), **var_params)
 
+	    
+
             ans_, att_, a_ = vqa_model.forward_pass(v, q, q_len) 
-	    #pdb.set_trace()
+	    
             nll = -log_softmax(ans_)
             loss = (nll * a / 10).sum(dim=1).mean()
             loss.backward()
@@ -326,7 +329,15 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             # Call the attack model      
             v_adversarial = fgsm(v, epsilon)
             #v_adversarial = ifgsm(v, q, a, q_len, vqa_model, steps, epsilon)
-	    #v_adversarial = mifgsm(v, q, a, q_len, vqa_model, steps, epsilon, mu)
+            #v_adversarial = mifgsm(v, q, a, q_len, vqa_model, steps, epsilon, mu)
+
+            for i in range(v_adversarial.size(0)):
+		#if i !=0 and fname[i] == fname[i-1]:
+		#	continue
+		save_path = val_storage_dir + 'fgsm/' + fname[i]
+		#print(save_path)
+		save_image(v_adversarial[i], save_path)
+
 
 	    #Track noise added
 	    noise_tracker.append( torch.mean(torch.abs(v - v_adversarial)).data.cpu().numpy()[0])
@@ -354,6 +365,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
             tq.set_postfix(acc=fmt(acc_tracker.mean.value), adv_acc=fmt(adv_acc_tracker.mean.value), noise=fmt(noise_tracker.mean.value))
 
 
+	    '''
 	    #Logging to compute question type wise accuracy
             que = q.cpu().data.numpy()
             ans = a.cpu().data.numpy()
@@ -368,6 +380,7 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0, epsilon = 0
                         else:
                                 f.write("Wrong!!! , "+str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')          
                         print(str(sent) + ' , ' + str(anss) + ' , ' + str(pred_ans) + '\n')
+	    '''
 
     return (np.sum(origs) / origs.shape[0]), (np.sum(origs_adv) / origs_adv.shape[0])
 
