@@ -12,7 +12,8 @@ from tqdm import tqdm
 
 import config
 import data
-import dfns_model
+import dfns_model as model
+import config_defense
 import utils
 
 
@@ -52,9 +53,9 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
         a = Variable(a.cuda(async=True), **var_params)
         q_len = Variable(q_len.cuda(async=True), **var_params)
 
-        out = net(v, q, q_len)
+        out, _, att, q_emb, v_emb = net(v, q, q_len)
         nll = -log_softmax(out)
-        loss = (nll * a / 10).sum(dim=1).mean()
+        loss = (nll * a / 10).sum(dim=1).mean() + contractive_loss(q_emb, v_emb, att, config_defense.lamq, config_defense.lamv)
         acc = utils.batch_accuracy(out.data, a.data).cpu()
 
         if train:
@@ -84,6 +85,18 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
         idxs = list(torch.cat(idxs, dim=0))
         return answ, accs, idxs
 
+def contractive_loss(q_emb, v_emb, att, lamq, lamv):
+    att_sum = torch.sum(torch.sum(att, dim=1), dim=(1,2))
+    q_grad = torch.autograd.grad(att_sum, q_emb)
+    v_grad = torch.autograd.grad(att_sum, v_emb)
+    print('q_grad dim should be batchsize*1: ', q_grad.shape)
+    print('v_grad dim should be batchsize*1: ', v_grad.shape)
+
+    q_contractive_loss = (q_grad ** 2).squeeze().mean()
+    v_contractive_loss = (v_grad ** 2).squeeze().mean()
+
+    return q_contractive_loss.mul_(lamq) + q_contractive_loss.mul_(lamv)
+
 
 def main():
     if len(sys.argv) > 1:
@@ -106,22 +119,38 @@ def main():
     config_as_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
 
     for i in range(config.epochs):
-        _ = run(net, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
-        r = run(net, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
-
+        tr = run(net, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
         results = {
             'name': name,
             'tracker': tracker.to_dict(),
             'config': config_as_dict,
             'weights': net.state_dict(),
             'eval': {
-                'answers': r[0],
-                'accuracies': r[1],
-                'idx': r[2],
+                'answers': tr[0],
+                'accuracies': tr[1],
+                'idx': tr[2],
             },
             'vocab': train_loader.dataset.vocab,
         }
-        torch.save(results, target_name)
+        print('Train results: ', results)
+
+        if i % 9 == 0:
+            r = run(net, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
+
+            results = {
+                'name': name,
+                'tracker': tracker.to_dict(),
+                'config': config_as_dict,
+                'weights': net.state_dict(),
+                'eval': {
+                    'answers': r[0],
+                    'accuracies': r[1],
+                    'idx': r[2],
+                },
+                'vocab': train_loader.dataset.vocab,
+            }
+            print('Eval results: ', results)
+            torch.save(results, target_name)
 
 
 if __name__ == '__main__':
