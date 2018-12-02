@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.utils.rnn import pack_padded_sequence
 from resnet_layer4 import resnet152
+from torch.autograd import Variable
 
 import config
 import pdb
@@ -32,6 +33,8 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.rnet = ResNet().cuda()
         self.rnet.eval()
+        for param in self.rnet.parameters():
+        	param.requires_grad = False
         question_features = 1024
         vision_features = config.output_features
         glimpses = 2
@@ -65,23 +68,25 @@ class Net(nn.Module):
 
     def forward(self, v, q, q_len):
 	#debugger
-        q = self.text(q, list(q_len.data))
-	print('q size line 67',q.shape)
-        v=self.rnet(v)
-	print('v shape line 72',v.shape)
-	v_emb = v / (v.norm(p=2, dim=1, keepdim=True).expand_as(v) + 1e-8)
-	print('v_emb size line 69',v_emb.shape)
-        #v_emb=self.rnet(v_emb)
-	print('v_emb res',v_emb.shape)
-	a = self.attention(v_emb, q)
-	print('a shape line 71',a.shape)
-        v_emb, att = apply_attention(v_emb, a)
+        q2 = self.text(q, list(q_len.data))
+        v2=self.rnet(v)
+	#pdb.set_trace()
+	#q2 = Variable(q2.data, requires_grad=True)
+	v2 = Variable(v2.data, requires_grad=True)
 
-        combined = torch.cat([v_emb, q], dim=1)
+	v_emb = v2 / (v2.norm(p=2, dim=1, keepdim=True).expand_as(v2) + 1e-8)
+        #v_emb=self.rnet(v_emb)
+	a = self.attention(v_emb, q2)
+        v_emb, att = apply_attention(v_emb, a)
+	
+	#pdb.set_trace()
+	sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
+	da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
+	da_dv = torch.autograd.grad(sum_att, v2, create_graph=True)[0]
+        
+	combined = torch.cat([v_emb, q2], dim=1)
         answer = self.classifier(combined)
-	print('v shape',v.shape)
-	print('answer shape',answer.shape)
-        return answer, att, a, q, v
+        return answer, att, a, da_dv, da_dq
 
 class Classifier(nn.Sequential):
     def __init__(self, in_features, mid_features, out_features, drop=0.0):
@@ -119,6 +124,7 @@ class TextProcessor(nn.Module):
         embedded = self.embedding(q)
         tanhed = self.tanh(self.drop(embedded))
         packed = pack_padded_sequence(tanhed, q_len, batch_first=True)
+	self.lstm.flatten_parameters()
         _, (_, c) = self.lstm(packed)
         return c.squeeze(0)
 

@@ -10,12 +10,14 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 from tqdm import tqdm
 
-import config
+import v_config_def_batch as config
 import data
-import dfns_model as model
-import config_defense
+import v_def_vqa_model as vqa_model
 import utils
 
+import pickle
+import numpy as np
+import pdb
 
 def update_learning_rate(optimizer, iteration):
     lr = config.initial_lr * 0.5**(float(iteration) / config.lr_halflife)
@@ -40,12 +42,14 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
 
     tq = tqdm(loader, desc='{} E{:03d}'.format(prefix, epoch), ncols=0)
     loss_tracker = tracker.track('{}_loss'.format(prefix), tracker_class(**tracker_params))
+    loss_tracker_v = tracker.track('{}_loss_v'.format(prefix), tracker_class(**tracker_params))
+    loss_tracker_q = tracker.track('{}_loss_q'.format(prefix), tracker_class(**tracker_params))
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
 
     log_softmax = nn.LogSoftmax().cuda()
     for v, q, a, idx, q_len in tq:
         var_params = {
-            'volatile': not train,
+            'volatile': False,
             'requires_grad': False,
         }
         v = Variable(v.cuda(async=True), **var_params)
@@ -53,9 +57,11 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
         a = Variable(a.cuda(async=True), **var_params)
         q_len = Variable(q_len.cuda(async=True), **var_params)
 
-        out, _, att, q_emb, v_emb = net(v, q, q_len)
+        out, w_att, att, da_dv, da_dq  = net(v, q, q_len)
         nll = -log_softmax(out)
-        loss = (nll * a / 10).sum(dim=1).mean() + contractive_loss(q_emb, v_emb, att, config_defense.lamq, config_defense.lamv)
+	#pdb.set_trace()
+        loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean((da_dv / 10000000.0)**2) + config.lambda_q * torch.mean((da_dq/10.0)**2)
+
         acc = utils.batch_accuracy(out.data, a.data).cpu()
 
         if train:
@@ -75,28 +81,17 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
             idxs.append(idx.view(-1).clone())
 
         loss_tracker.append(loss.data[0])
+	loss_tracker_v.append(torch.mean((da_dv / 10000000.0)**2).data.cpu().numpy()[0])
+	loss_tracker_q.append(torch.mean((da_dq/10.0)**2).data.cpu().numpy()[0])
         acc_tracker.append(acc.mean())
         fmt = '{:.4f}'.format
-        tq.set_postfix(loss=fmt(loss_tracker.mean.value), acc=fmt(acc_tracker.mean.value))
+        tq.set_postfix(loss=fmt(loss_tracker.mean.value), loss_v=fmt(loss_tracker_v.mean.value), loss_q=fmt(loss_tracker_q.mean.value), acc=fmt(acc_tracker.mean.value))
 
     if not train:
         answ = list(torch.cat(answ, dim=0))
         accs = list(torch.cat(accs, dim=0))
         idxs = list(torch.cat(idxs, dim=0))
         return answ, accs, idxs
-
-def contractive_loss(q_emb, v_emb, att, lamq, lamv):
-    att_sum = torch.sum(torch.sum(torch.sum(att,1),1),1)
-    #att_sum = torch.sum(att, 1)
-    q_grad = torch.autograd.grad(att_sum, q_emb)
-    v_grad = torch.autograd.grad(att_sum, v_emb)
-    print('q_grad dim should be batchsize*1: ', q_grad.shape)
-    print('v_grad dim should be batchsize*1: ', v_grad.shape)
-
-    q_contractive_loss = (q_grad ** 2).squeeze().mean()
-    v_contractive_loss = (v_grad ** 2).squeeze().mean()
-
-    return q_contractive_loss.mul_(lamq) + q_contractive_loss.mul_(lamv)
 
 
 def main():
@@ -110,48 +105,37 @@ def main():
 
     cudnn.benchmark = True
 
-    train_loader = data.get_loader(train=True)
-    val_loader = data.get_loader(val=True)
+    train_loader = data.get_loader(train=True, batch_size=config.batch_size)
+    val_loader = data.get_loader(val=True, batch_size=config.batch_size)
 
-    net = nn.DataParallel(model.Net(train_loader.dataset.num_tokens)).cuda()
+    log = torch.load(config.vqa_model_path)
+    tokens = len(log['vocab']['question']) + 1
+
+    net = torch.nn.DataParallel(vqa_model.Net(tokens)).cuda()
+    net.load_state_dict(log['weights'], strict=False)
+
     optimizer = optim.Adam([p for p in net.parameters() if p.requires_grad])
 
     tracker = utils.Tracker()
     config_as_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
 
     for i in range(config.epochs):
-        tr = run(net, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
+        _ = run(net, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
+        r = run(net, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
+
         results = {
             'name': name,
             'tracker': tracker.to_dict(),
             'config': config_as_dict,
             'weights': net.state_dict(),
             'eval': {
-                'answers': tr[0],
-                'accuracies': tr[1],
-                'idx': tr[2],
+                'answers': r[0],
+                'accuracies': r[1],
+                'idx': r[2],
             },
             'vocab': train_loader.dataset.vocab,
         }
-        print('Train results: ', results)
-
-        if i % 9 == 0:
-            r = run(net, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
-
-            results = {
-                'name': name,
-                'tracker': tracker.to_dict(),
-                'config': config_as_dict,
-                'weights': net.state_dict(),
-                'eval': {
-                    'answers': r[0],
-                    'accuracies': r[1],
-                    'idx': r[2],
-                },
-                'vocab': train_loader.dataset.vocab,
-            }
-            print('Eval results: ', results)
-            torch.save(results, target_name)
+        torch.save(results, target_name)
 
 
 if __name__ == '__main__':
