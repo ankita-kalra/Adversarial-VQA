@@ -1,4 +1,4 @@
-# AvdVQA : Attend, Attend and Destroy
+# AdvVQA : Attend, Attack and Destroy
 
 This repository contains the code for our project Adversarial Attacks on VQA Models.
 
