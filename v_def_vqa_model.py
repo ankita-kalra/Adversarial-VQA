@@ -77,14 +77,20 @@ class Net(nn.Module):
 	v_emb = v2 / (v2.norm(p=2, dim=1, keepdim=True).expand_as(v2) + 1e-8)
         #v_emb=self.rnet(v_emb)
 	a = self.attention(v_emb, q2)
-        v_emb, att = apply_attention(v_emb, a)
+
+        #pdb.set_trace()
+        sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
+        da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
+        da_dv = torch.autograd.grad(sum_att, v_emb, create_graph=True)[0]
+
+        v_emb2, att = apply_attention(v_emb, a)
 	
 	#pdb.set_trace()
-	sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
-	da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
-	da_dv = torch.autograd.grad(sum_att, v2, create_graph=True)[0]
+	#sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
+	#da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
+	#da_dv = torch.autograd.grad(sum_att, v2, create_graph=True)[0]
         
-	combined = torch.cat([v_emb, q2], dim=1)
+	combined = torch.cat([v_emb2, q2], dim=1)
         answer = self.classifier(combined)
         return answer, att, a, da_dv, da_dq
 

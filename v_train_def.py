@@ -59,8 +59,9 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
 
         out, w_att, att, da_dv, da_dq  = net(v, q, q_len)
         nll = -log_softmax(out)
-	#pdb.set_trace()
-        loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean((da_dv / 10000000.0)**2) + config.lambda_q * torch.mean((da_dq/10.0)**2)
+	pdb.set_trace()
+        #loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean((da_dv / 10000000.0)**2) + config.lambda_q * torch.mean((da_dq/10.0)**2)
+	loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean(da_dv**2)
 
         acc = utils.batch_accuracy(out.data, a.data).cpu()
 
@@ -111,7 +112,8 @@ def main():
     log = torch.load(config.vqa_model_path)
     tokens = len(log['vocab']['question']) + 1
 
-    net = torch.nn.DataParallel(vqa_model.Net(tokens)).cuda()
+    #net = torch.nn.DataParallel(vqa_model.Net(tokens)).cuda()
+    net = vqa_model.Net(tokens).cuda()
     net.load_state_dict(log['weights'], strict=False)
 
     optimizer = optim.Adam([p for p in net.parameters() if p.requires_grad])
