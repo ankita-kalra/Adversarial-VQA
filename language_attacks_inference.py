@@ -208,9 +208,9 @@ def run(vqa_model, loader, tracker, train=False, prefix='', epoch=0):
 	    path = None
 	    multiplier=10
             if bi == 0:
-	    	pdb.set_trace()
+	    	#pdb.set_trace()
             	att_over_img, sent, anss = vis_attention(v[38], que[38], target_idx[38], a_new[38, 0], path, multiplier)
-	    	pdb.set_trace()
+	    	#pdb.set_trace()
 
 	    	for j in range(que.shape[0]):
 			ques = que[j]

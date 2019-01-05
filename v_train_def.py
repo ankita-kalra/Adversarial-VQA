@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 import v_config_def_batch as config
 import data
-import v_def_vqa_model as vqa_model
+import v_def_model as model
 import utils
 
 import pickle
@@ -31,10 +31,10 @@ total_iterations = 0
 def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
     """ Run an epoch over the given loader """
     if train:
-        net.train()
+        net.vqa_net.train()
         tracker_class, tracker_params = tracker.MovingMeanMonitor, {'momentum': 0.99}
     else:
-        net.eval()
+        net.vqa_net.eval()
         tracker_class, tracker_params = tracker.MeanMonitor, {}
         answ = []
         idxs = []
@@ -57,9 +57,9 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
         a = Variable(a.cuda(async=True), **var_params)
         q_len = Variable(q_len.cuda(async=True), **var_params)
 
-        out, w_att, att, da_dv, da_dq  = net(v, q, q_len)
+        out, w_att, att, da_dv, da_dq  = net.forward(v, q, q_len)
         nll = -log_softmax(out)
-	pdb.set_trace()
+	#pdb.set_trace()
         #loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean((da_dv / 10000000.0)**2) + config.lambda_q * torch.mean((da_dq/10.0)**2)
 	loss = (nll * a / 10).sum(dim=1).mean() + config.lambda_v * torch.mean(da_dv**2)
 
@@ -82,7 +82,7 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
             idxs.append(idx.view(-1).clone())
 
         loss_tracker.append(loss.data[0])
-	loss_tracker_v.append(torch.mean((da_dv / 10000000.0)**2).data.cpu().numpy()[0])
+	loss_tracker_v.append(config.lambda_v * torch.mean(da_dv**2).data.cpu().numpy()[0])
 	loss_tracker_q.append(torch.mean((da_dq/10.0)**2).data.cpu().numpy()[0])
         acc_tracker.append(acc.mean())
         fmt = '{:.4f}'.format
@@ -109,27 +109,32 @@ def main():
     train_loader = data.get_loader(train=True, batch_size=config.batch_size)
     val_loader = data.get_loader(val=True, batch_size=config.batch_size)
 
-    log = torch.load(config.vqa_model_path)
-    tokens = len(log['vocab']['question']) + 1
+    #log = torch.load(config.vqa_model_path)
+    #tokens = len(log['vocab']['question']) + 1
 
     #net = torch.nn.DataParallel(vqa_model.Net(tokens)).cuda()
-    net = vqa_model.Net(tokens).cuda()
-    net.load_state_dict(log['weights'], strict=False)
+    #net = vqa_model.Net(tokens).cuda()
+    #net.load_state_dict(log['weights'], strict=False)
 
-    optimizer = optim.Adam([p for p in net.parameters() if p.requires_grad])
+    vqa_model = model.VQANet()
+    #vocab = vqa_model.get_vocab()
+
+    optimizer = optim.Adam([p for p in vqa_model.vqa_net.parameters() if p.requires_grad])
 
     tracker = utils.Tracker()
     config_as_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
 
     for i in range(config.epochs):
-        _ = run(net, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
-        r = run(net, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
+        _ = run(vqa_model, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
+        r = run(vqa_model, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
+
+	pdb.set_trace()
 
         results = {
             'name': name,
             'tracker': tracker.to_dict(),
             'config': config_as_dict,
-            'weights': net.state_dict(),
+            'weights': vqa_model.state_dict(),
             'eval': {
                 'answers': r[0],
                 'accuracies': r[1],

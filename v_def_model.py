@@ -48,9 +48,10 @@ class VQANet:
 		'''
 		im_features = self.rnet(im) #If RGB image feats received
 		#im_features = im #Pre computed resnet features
-		ans, att, a, v, q = self.vqa_net(im_features, q, q_len)
+		im_features.requires_grad = True
+		ans, att, a, da_dv, da_dq = self.vqa_net(im_features, q, q_len)
 
-		return ans, att, a, v, q
+		return ans, att, a, da_dv, da_dq
 
 '''
 class AttackNet(torch.nn.Module):

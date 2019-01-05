@@ -3,25 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.utils.rnn import pack_padded_sequence
-from resnet_layer4 import resnet152
-from torch.autograd import Variable
 
 import config
-import pdb
 
-
-class ResNet(torch.nn.Module):
-    def __init__(self):
-        super(ResNet, self).__init__()
-        self.model = resnet152(pretrained=True)
-
-        def save_output(module, input, output):
-            self.buffer = output
-        self.model.layer4.register_forward_hook(save_output)
-
-    def forward(self, x):
-        out, layer4 = self.model(x)
-        return layer4
 
 class Net(nn.Module):
     """ Re-implementation of ``Show, Ask, Attend, and Answer: A Strong Baseline For Visual Question Answering'' [0]
@@ -31,10 +15,6 @@ class Net(nn.Module):
 
     def __init__(self, embedding_tokens):
         super(Net, self).__init__()
-        self.rnet = ResNet().cuda()
-        self.rnet.eval()
-        for param in self.rnet.parameters():
-        	param.requires_grad = False
         question_features = 1024
         vision_features = config.output_features
         glimpses = 2
@@ -59,7 +39,6 @@ class Net(nn.Module):
             drop=0.5,
         )
 
-
         for m in self.modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
                 init.xavier_uniform(m.weight)
@@ -67,32 +46,22 @@ class Net(nn.Module):
                     m.bias.data.zero_()
 
     def forward(self, v, q, q_len):
-	#debugger
         q2 = self.text(q, list(q_len.data))
-        v2=self.rnet(v)
-	#pdb.set_trace()
-	#q2 = Variable(q2.data, requires_grad=True)
-	v2 = Variable(v2.data, requires_grad=True)
 
-	v_emb = v2 / (v2.norm(p=2, dim=1, keepdim=True).expand_as(v2) + 1e-8)
-        #v_emb=self.rnet(v_emb)
-	a = self.attention(v_emb, q2)
+        v_emb = v / (v.norm(p=2, dim=1, keepdim=True).expand_as(v) + 1e-8)
+        a = self.attention(v_emb, q2)
 
-        #pdb.set_trace()
+
         sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
         da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
         da_dv = torch.autograd.grad(sum_att, v_emb, create_graph=True)[0]
 
         v_emb2, att = apply_attention(v_emb, a)
-	
-	#pdb.set_trace()
-	#sum_att = torch.sum(torch.sum(torch.sum(a,1),1),1)
-	#da_dq = torch.autograd.grad(sum_att, q2, create_graph=True)[0]
-	#da_dv = torch.autograd.grad(sum_att, v2, create_graph=True)[0]
-        
-	combined = torch.cat([v_emb2, q2], dim=1)
+
+        combined = torch.cat([v_emb2, q2], dim=1)
         answer = self.classifier(combined)
-        return answer, att, a, da_dv, da_dq
+        return answer, att, a, da_dv, da_dq #Return both answer, weighted att maps and the attention maps. Modified from original here
+
 
 class Classifier(nn.Sequential):
     def __init__(self, in_features, mid_features, out_features, drop=0.0):
@@ -130,7 +99,6 @@ class TextProcessor(nn.Module):
         embedded = self.embedding(q)
         tanhed = self.tanh(self.drop(embedded))
         packed = pack_padded_sequence(tanhed, q_len, batch_first=True)
-	self.lstm.flatten_parameters()
         _, (_, c) = self.lstm(packed)
         return c.squeeze(0)
 
