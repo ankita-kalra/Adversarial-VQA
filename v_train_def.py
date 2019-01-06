@@ -128,13 +128,13 @@ def main():
         _ = run(vqa_model, train_loader, optimizer, tracker, train=True, prefix='train', epoch=i)
         r = run(vqa_model, val_loader, optimizer, tracker, train=False, prefix='val', epoch=i)
 
-	pdb.set_trace()
+	#pdb.set_trace()
 
         results = {
             'name': name,
             'tracker': tracker.to_dict(),
             'config': config_as_dict,
-            'weights': vqa_model.state_dict(),
+            'weights': vqa_model.vqa_net.state_dict(),
             'eval': {
                 'answers': r[0],
                 'accuracies': r[1],
