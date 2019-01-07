@@ -1,9 +1,14 @@
 import json
 import numpy as np
 import pdb
+from collections import Counter
 
 q_file = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_train2014_questions.json"
 a_file = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/mscoco_train2014_annotations.json"
+
+def most_common(lst):
+    data = Counter(lst)
+    return max(lst, key=data.get)
 
 with open(a_file) as json_file:
     a_data = json.load(json_file)
@@ -51,6 +56,39 @@ a_data1['annotations'] = []
 a_data2['annotations'] = []
 
 for q in q_dict.keys()
-    
+    n = len(q_dict[q])
+    if n < 2:
+       continue 
+    else:
+       for i in range(n):
+            j = i + 1
+            a_list1 = [a['answer'] for a in a_dict[q][i]['answers']]
+            ans1 = most_common(a_list1)
+            while j < n:
+                a_list2 = [a['answer'] for a in a_dict[q][j]['answers']]
+                ans2 = most_common(a_list2)
+            if ans1 != ans2:    #Different answer, add pair to list. Think about adding counts here later ##############################################################################
+                q_data1.append(q_dict[q][i])
+                q_data2.append(q_dict[q][j])
+                a_data1.append(a_dict[q][i])
+                a_data2.append(a_dict[q][j])
+            else:    #Same answer, skip this pair
+                continue
+            j += 1
 
+
+print("Continue to write json files")
+pdb.set_trace()
+
+with open('q_pair1.json', 'w') as outfile:  
+    json.dump(q_data1, outfile)
+
+with open('q_pair2.json', 'w') as outfile:
+    json.dump(q_data2, outfile)
+
+with open('a_pair1.json', 'w') as outfile:
+    json.dump(a_data1, outfile)
+
+with open('a_pair2.json', 'w') as outfile:
+    json.dump(a_data2, outfile)
 
