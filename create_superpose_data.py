@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import pdb
+import copy
 from collections import Counter
 
 q_file = "/home/akalra1/projects/adversarial-attacks/data/vqa_v1/OpenEnded_mscoco_train2014_questions.json"
@@ -25,7 +26,7 @@ m_len = 0
 lens = []
 two_len = 0
 for i in range(n_ques):
-    print("Reading " +str(i) +" / " +str(n_ques))
+    #print("Reading " +str(i) +" / " +str(n_ques))
     q = q_data['questions'][i]['question'].lower()
     if q in q_dict.keys():
         q_dict[q].append(q_data['questions'][i])
@@ -42,20 +43,25 @@ for i in range(n_ques):
 for key in q_dict.keys():
     lens.append(len(q_dict[key]))
 
+print("Begin pair creation?")
 pdb.set_trace()
 
-q_data1 = q_data
-q_data2 = q_data
+q_data1 = copy.deepcopy(q_data)
+q_data2 = copy.deepcopy(q_data)
 q_data1['questions'] = []
 q_data2['questions'] = []
 
 
-a_data1 = a_data
-a_data2 = a_data
+a_data1 = copy.deepcopy(a_data)
+a_data2 = copy.deepcopy(a_data)
 a_data1['annotations'] = []
 a_data2['annotations'] = []
 
-for q in q_dict.keys()
+cnt = len(q_dict.keys())
+co = 0
+for q in q_dict.keys():
+    print("Processing " + str(co + 1) + " / " + str(cnt))
+    co += 1
     n = len(q_dict[q])
     if n < 2:
        continue 
@@ -67,14 +73,12 @@ for q in q_dict.keys()
             while j < n:
                 a_list2 = [a['answer'] for a in a_dict[q][j]['answers']]
                 ans2 = most_common(a_list2)
-            if ans1 != ans2:    #Different answer, add pair to list. Think about adding counts here later ##############################################################################
-                q_data1.append(q_dict[q][i])
-                q_data2.append(q_dict[q][j])
-                a_data1.append(a_dict[q][i])
-                a_data2.append(a_dict[q][j])
-            else:    #Same answer, skip this pair
-                continue
-            j += 1
+                if ans1 != ans2:    #Different answer, add pair to list. Think about adding counts here later ##############################################################################
+                    q_data1['questions'].append(q_dict[q][i])
+                    q_data2['questions'].append(q_dict[q][j])
+                    a_data1['annotations'].append(a_dict[q][i])
+                    a_data2['annotations'].append(a_dict[q][j])
+                j += 1
 
 
 print("Continue to write json files")
