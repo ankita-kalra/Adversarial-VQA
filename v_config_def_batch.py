@@ -27,5 +27,5 @@ data_workers = 8
 max_answers = 3000
 initial_lr = 1e-3  # default Adam lr
 #loss multipliers
-lambda_v = 1000
+lambda_v = 10000
 lambda_q = 0.01
