@@ -53,11 +53,12 @@ class VQANet:
 class AttackNet(torch.nn.Module):
 	def __init__(self):
 		super(AttackNet, self).__init__()
-		self.conv1 = nn.ConvTranspose2d(4096, 512, 3, stride=2, padding=1)
+		self.conv0 = nn.ConvTranspose2d(8192, 2048, 3, stride=2, padding=1
+		self.conv1 = nn.ConvTranspose2d(2048, 512, 3, stride=2, padding=1)
 		self.conv2 = nn.ConvTranspose2d(512, 128, 3, stride=2, padding=1)
 		self.conv3 = nn.ConvTranspose2d(128, 32, 3, stride=2, padding=1)
-		self.conv4 = nn.ConvTranspose2d(32, 3, 3, stride=4, padding=1)
-		self.conv = nn.Conv2d(4096,1024,3,  padding=1)
+		self.conv4 = nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1)	#Generating pixel level map. If you want channel level then make the output 3 channels
+		#self.conv = nn.Conv2d(4096,1024,3,  padding=1)
 		for m in self.modules():
 			if isinstance(m, nn.ConvTranspose2d):
 				init.xavier_uniform(m.weight)
@@ -66,11 +67,15 @@ class AttackNet(torch.nn.Module):
 
 	def forward(self, att):
 		#att = nn.Tanh()(self.conv(att))
-		att = nn.Tanh()(self.conv1(att, output_size=[1, 1024, 28, 28]))
-		att = nn.Tanh()(self.conv2(att, output_size=[1, 1024, 56, 56]))
-		att = nn.Tanh()(self.conv3(att, output_size=[1, 1024, 112, 112]))
-		att = self.conv4(att, output_size=[1, 1024, 448, 448])
-		#att = nn.Conv2d(3,3, 1)(att, output_size=[1, 1024, 448, 448])
-		#return att
-		return nn.Tanh()(att)
+		att = nn.ReLU()(self.conv0(att, output_size=[1, 2048, 28, 28]))
+		att = nn.ReLU()(self.conv1(att, output_size=[1, 512, 56, 56]))
+		att = nn.ReLU()(self.conv2(att, output_size=[1, 128, 112, 112]))
+		att = nn.ReLU()(self.conv3(att, output_size=[1, 32, 224, 224]))
+		att = nn.Sigmoid()(self.conv4(att, output_size=[1, 1, 448, 448]))		##Generating pixel level map. If you want channel level then make the output 3 channels
+		#Sigmoid used to get superposition weights to be in [0,1]
+		return att
+
+
+
+
 

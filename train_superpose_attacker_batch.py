@@ -11,7 +11,7 @@ import torch.backends.cudnn as cudnn
 from tqdm import tqdm
 
 import config_att_batch as config
-import data
+import superpose_data as data
 import superpose_att_model as model
 import utils
 
@@ -48,7 +48,7 @@ def run(net, loader, optimizer, tracker, train=False, prefix='', epoch=0):
     acc_tracker = tracker.track('{}_acc'.format(prefix), tracker_class(**tracker_params))
 
     log_softmax = nn.LogSoftmax().cuda()
-    for v, q, a, idx, q_len in tq:
+    for v1, v2, q1, q2, a1, a2, idx, q_len1, q_len2 in tq:
         var_params = {
             'volatile': not train,
             'requires_grad': False,
@@ -112,19 +112,25 @@ def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
     dec_accs = []
     tot_mean_noise = 0
     i = 0
-    for v, q, a, idx, q_len in tq:
+    for v1, v2, q1, q2, a1, a2, idx, q_len1, q_len2 in tq:
             var_params = {
                 'volatile': not train,
                 'requires_grad': False,
             }
-            v = Variable(v.cuda(async=True), **var_params)
-            q = Variable(q.cuda(async=True), **var_params)
-            a = Variable(a.cuda(async=True), **var_params)
-            q_len = Variable(q_len.cuda(async=True), **var_params)
+            v1 = Variable(v1.cuda(async=True), **var_params)
+            q1 = Variable(q1.cuda(async=True), **var_params)
+            a1 = Variable(a1.cuda(async=True), **var_params)
+            q_len1 = Variable(q_len1.cuda(async=True), **var_params)
+
+            v2 = Variable(v2.cuda(async=True), **var_params)
+            q2 = Variable(q2.cuda(async=True), **var_params)
+            a2 = Variable(a2.cuda(async=True), **var_params)
+            q_len2 = Variable(q_len2.cuda(async=True), **var_params)
+
 
             if train:
                 global total_iterations
-                orig, success, img, loss1, loss2, mean_noise = attacker.perform(v, q, q_len, a, total_iterations)
+                orig, success, img, loss1, loss2, mean_noise = attacker.perform(v1, v2, q1, q2, a1, a2, q_len1, q_len2, total_iterations)
 
                 #Update Learning rate. Use smooth decay. Can replace by decrease_on_plateau scheduler
                 total_iterations += 1
@@ -133,7 +139,7 @@ def run(attacker, vqa_model, loader, tracker, train=False, prefix='', epoch=0):
                 noise_tracker.append(loss2.data[0])
                 
             else:
-                orig, success, img, _, loss2, mean_noise = attacker.perform_validation(v, q, q_len, a, total_iterations)
+                orig, success, img, _, loss2, mean_noise = attacker.perform_validation(v1, v2, q1, q2, a1, a2, q_len1, q_len2, total_iterations)
                 loss_tracker.append(loss2.data[0]) #Tracks only the noise. Not the entire loss
                 noise_tracker.append(loss2.data[0])
                 
