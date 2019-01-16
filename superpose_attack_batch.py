@@ -1,6 +1,6 @@
 from torch.autograd import Variable
 import torch
-from att_model import AttackNet
+from superpose_att_model import AttackNet
 import torch.optim as optim
 import numpy as np
 import torch.nn as nn
@@ -31,122 +31,6 @@ def step_update_learning_rate(optimizer, iteration):
         	#print ("LR = ", lr)
         	param_group['lr'] /= 2
 
-class CarliniAttacker:
-    def __init__(self, VQA_model, targetted=False):
-        # save a globle vqa model
-        self.VQA_model = VQA_model
-        self.vocab = VQA_model.get_vocab()
-        self.ans_vocab_inv = {b:a for a,b in self.vocab['answer'].items()}
-        self.tanh = nn.Tanh().cuda()
-        self.targetted = targetted
-        self.confidence = 20
-        self.scalar_const = Variable(torch.Tensor([1000]).float()).cuda()
-        self.unorm = utils.UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-
-    def perform_validation(self, im, q, q_len, a):
-        img = Variable(im.cuda(async=True))
-        img_clone = img.clone()
-        que = Variable(torch.from_numpy(q).long().cuda(async=True))
-        ans = Variable(torch.from_numpy(a).cuda(async=True))
-        que_len = Variable(torch.from_numpy(q_len).cuda(async=True))
-
-        ans_, att_ = self.VQA_model.forward_pass(img, que, que_len)
-
-
-        prob_value, ans_index = ans_.data.cpu().max(dim=1)
-        _, target_idx = ans.data.cpu().max(dim=1)
-
-        if (target_idx.numpy()[0] == ans_index.numpy()[0]):
-            print 'initial (target, ans): ', self.ans_vocab_inv[target_idx.numpy()[0]], self.ans_vocab_inv[ans_index.numpy()[0]]
-            success, img = self.perform(im, q, q_len, a)
-            return True, success, img
-        else:
-            return False, False, None
-
-    def perform(self, im, q, q_len, a):
-        img_shape = im.cpu().numpy().shape
-
-        img = Variable(im.cuda(async=True))
-        img_clone = img.clone()
-        que = Variable(torch.from_numpy(q).long().cuda(async=True))
-        ans = Variable(torch.from_numpy(a).cuda(async=True))
-        que_len = Variable(torch.from_numpy(q_len).cuda(async=True))
-
-        perturb = Variable(torch.Tensor(img_shape[0],img_shape[1],img_shape[2],img_shape[3]).normal_(std=0.1).float().cuda(async=True),requires_grad=True)
-
-        boxmax = Variable(torch.Tensor(1).fill_(im.max()).float().cuda())
-        boxmin = Variable(torch.Tensor(1).fill_(im.min()).float().cuda())
-        boxmul = (boxmax - boxmin) / 2.
-        boxplus = (boxmin + boxmax) / 2.
-
-        #print boxplus, boxmul
-        # convert to tanh space
-        img = torch.atan((img - boxplus)/boxmul * 0.999999)
-
-        success = False
-        iter_ = 0
-        img_cv = None
-
-        self.optimizer = optim.Adam([perturb])
-        while iter_ < max_inter and success == False:
-            iter_ += 1
-            update_learning_rate(self.optimizer, iter_)
-            newimg = self.tanh(perturb + img) * boxmul + boxplus
-            #newimg_arctan = torch.atan((newimg - boxplus)/boxmul * 0.999999)
-            l2dist = torch.abs(newimg - (self.tanh(img) * boxmul + boxplus)).sum()
-
-            ans_t, _ = self.VQA_model.forward_pass(newimg, que, que_len)
-
-            real = (ans_t*ans).sum(dim=1)
-            other = (((1-ans)*ans_t) - (ans*10000)).max()
-
-            if self.targetted:
-                # if targetted, optimize for making the other class most likely
-                loss1 = torch.max(Variable(torch.Tensor(1).fill_(0.0).cuda()), other-real+self.confidence)
-            else:
-                # if untargeted, optimize for making this class least likely.
-                loss1 = torch.max(Variable(torch.Tensor(1).fill_(0.0).cuda()), real-other+self.confidence)
-
-            # sum up the losses
-            loss2 = l2dist.sum()
-            loss1 = (self.scalar_const*loss1).sum()
-            loss = loss1 + loss2
-
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-            prob_value, ans_index = ans_t.data.cpu().max(dim=1)
-            _, target_idx = ans.data.cpu().max(dim=1)
-            val1 = torch.abs(self.tanh(perturb) * boxmul + boxplus).sum().data.cpu().numpy()[0]
-            if iter_ % 50 == 0:
-                print iter_, val1, loss1.data.cpu().numpy()[0], loss2.data.cpu().numpy()[0], self.ans_vocab_inv[target_idx.numpy()[0]], self.ans_vocab_inv[ans_index.numpy()[0]]
-
-            #if(loss2.data.cpu().numpy()[0] < 5000 and
-            #            (ans_index.numpy()[0] != target_idx.numpy()[0])):
-
-            if(val1 < 188000.0 and
-                (ans_index.numpy()[0] != target_idx.numpy()[0])):
-                    # original image
-                    img_np2 = self.unorm(img_clone.data).cpu().numpy()
-                    img_cv2 = np.transpose(img_np2,(0,2,3,1))
-                    img_cv2 = cv2.convertScaleAbs(img_cv2.reshape(448,448,3)*255)
-                    img_cv2 = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
-                    cv2.imshow('original', img_cv2)
-                    cv2.waitKey()
-
-                    #perturbed image
-                    img_np1 = self.unorm(newimg.data).cpu().numpy()
-                    img_cv = np.transpose(img_np1,(0,2,3,1))
-                    img_cv = cv2.convertScaleAbs(img_cv.reshape(448,448,3)*255)
-                    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-                    cv2.imshow('purturbed', img_cv)
-                    cv2.waitKey()
-
-
-                    success = True
-        return success, img_cv
-
 
 class Attacker:
     def __init__(self, VQA_model, targetted=False):
@@ -176,7 +60,7 @@ class Attacker:
             self.targetted_const = -1
 
 
-    def perform_validation(self, img, que, que_len, ans, total_iterations):
+    def perform_validation(self, img1, img2, que1, que2, ans1, ans2, que_len1, que_len2, total_iterations):
         '''
         img: batch of images
         que: batch of questions
@@ -279,7 +163,7 @@ class Attacker:
         #else:
             #return False, False, None, None, None, None #orig = False as the original VQA model itself misclassifies
 
-    def perform(self, img, que, que_len, ans, total_iterations, val=False):
+    def perform(self, img1, img2, que1, que2, ans1, ans2, que_len1, que_len2, total_iterations, val=False):
         '''
         img: batch of images
         que: batch of questions
@@ -297,27 +181,38 @@ class Attacker:
         '''
         # im is torch tensor, converting everything into Variable
         #img = Variable(img.cuda(async=True))
-        img_clone = img.clone()
+        img_clone1 = img1.clone()
+	img_clone2 = img2.clone()
         #que = Variable(torch.from_numpy(que).long().cuda(async=True))
         #ans = Variable(torch.from_numpy(ans).cuda(async=True))
         #que_len = Variable(torch.from_numpy(que_len).cuda(async=True))
 
 	#pdb.set_trace()	
-        ans_, att_, a_ = self.VQA_model.forward_pass(img, que, que_len)
-	a_new = F.softmax(a_.view(a_.size(0), a_.size(1), -1), 2)
-        a_ = a_new.view(a_.size(0), a_.size(1), a_.size(2), a_.size(3))        
+        ans_1, att_1, a_1 = self.VQA_model.forward_pass(img1, que1, que_len1)
+	a_new1 = F.softmax(a_1.view(a_1.size(0), a_1.size(1), -1), 2)
+        a_1 = a_new1.view(a_1.size(0), a_1.size(1), a_1.size(2), a_1.size(3))       
+
+        ans_2, att_2, a_2 = self.VQA_model.forward_pass(img2, que2, que_len2)
+        a_new2 = F.softmax(a_2.view(a_2.size(0), a_2.size(1), -1), 2)
+        a_2 = a_new2.view(a_2.size(0), a_2.size(1), a_2.size(2), a_2.size(3))
+ 
         #pdb.set_trace()
 
-        prob_value, ans_index = ans_.data.cpu().max(dim=1)
+        prob_value1, ans_index1 = ans_1.data.cpu().max(dim=1)
         #ans stores the target index for the attack or ground truth for untargetted
-        _, target_idx = ans.data.cpu().max(dim=1)
+        _, target_idx1 = ans1.data.cpu().max(dim=1)
+	_, target_idx2 = ans2.data.cpu().max(dim=1)
 
         #orig stores whether the original VQA model predicts the answer correctly
-        orig = (ans_index == target_idx).numpy()
+        orig = (ans_index1 == target_idx1).numpy()
 
-        att_cpu = att_.data.cpu().numpy()
+        att_cpu1 = att_1.data.cpu().numpy()
         #Break computational graph to not backprop into the VQA model itself
-        att_clone = Variable(torch.from_numpy(att_cpu).cuda(), requires_grad= False).view(que.shape[0], 4096, 14, 14)
+        att_clone1 = Variable(torch.from_numpy(att_cpu1).cuda(), requires_grad= False).view(que.shape[0], 4096, 14, 14)
+
+        att_cpu2 = att_2.data.cpu().numpy()
+        #Break computational graph to not backprop into the VQA model itself
+        att_clone2 = Variable(torch.from_numpy(att_cpu2).cuda(), requires_grad= False).view(que.shape[0], 4096, 14, 14)
 	#####################################################################################################################################Initialize this to a array of False. Use this to zero out loss of entries where already success. Also use for premature exit if needed. Also remove image unNormalize and image reconstruction for now
         #success = False
         success = [False] * que.size(0) #Stores which samples in the batch have already been successfully attacked
@@ -336,18 +231,19 @@ class Attacker:
             #update_learning_rate(self.optimizer, total_iterations) #####################################Replace with scheduler instead using decrease_on_plateau
 
             #Attack the image now using attention maps
-            purturb = self.attack_model(att_clone)
+            joint_att = torch.cat((att_clone1, att_clone2), 1)
+            purturb = self.attack_model(joint_att)	#Could either be superposition weight map or noise map depending on what you are doing
             update_map = Variable((torch.FloatTensor(success)).unsqueeze(1).unsqueeze(1).unsqueeze(1).expand_as(img_clone).cuda()) #Use success to construct a mask which prevents changes to perturbed images which succeed in attack
             update_map.requires_grad = False
             #Add noise back to image
             if iter_ == 1:
-                img_ = (img_clone + purturb)
+                img_ = (img_clone1 + purturb)
 	    else:
-		img_ =  (1 - update_map) * (img_clone + purturb) + (update_map * img_) #Update only the images for which success is False
+		img_ =  (1 - update_map) * (img_clone1 + purturb) + (update_map * img_) #Update only the images for which success is False
             #Get answer and attention maps when perturbed image is fed to the VQA network
             ans_t, att_t, a_t = self.VQA_model.forward_pass(img_, que, que_len)
 
-            #Compute targetted/untargetted loss
+            #Compute targetted loss
             nll = -1 * self.targetted_const * self.log_softmax(ans_t) # self.targetted_const is 1 if untargetted -1 if targetted
             #ans in targetted case is the target but untargetted case is ground truth ans. (nll*ans) controls the correct loss
             var_success = Variable(torch.FloatTensor(success).cuda())
